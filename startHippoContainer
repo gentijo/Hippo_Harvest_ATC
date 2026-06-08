@@ -1,0 +1,26 @@
+#!/bin/sh
+echo Network disable is expected
+echo Edit xhost settings in this file for fine grained control
+echo this line may fail on non-linux hosts
+xhost +
+
+NET_NAME=hippo-rosnet
+IMAGE_NAME=hippo-ros
+
+
+NET_EXISTS=$(docker network list | grep $NET_NAME )
+if [ -z "$NET_EXISTS" ]; then
+    echo "Creating Network " $NET_NAME
+    docker network create $NET_NAME
+fi
+
+DOCKER_DEF=Dockerfile.HippoHarvest
+IMAGE_EXISTS=$(docker image list | grep $IMAGE_NAME )
+#if [ -z "$IMAGE_EXISTS" ]; then
+   cd docker
+   echo "Building " $IMAGE_NAME " image"
+   docker build -t $IMAGE_NAME -f $DOCKER_DEF .
+   cd -
+#fi
+
+docker run -it --net=$NET_NAME --name hippoharvest --hostname hippoharvest --privileged --env DISPLAY=unix$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v /dev:/dev -v`pwd`:/opt/code $IMAGE_NAME bash

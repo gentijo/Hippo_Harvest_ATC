@@ -1,0 +1,10 @@
+#FROM ros:jazzy
+FROM osrf/ros:jazzy-desktop-full
+
+RUN apt -y update
+RUN apt -y upgrade
+RUN apt install -y ros-jazzy-turtlesim 
+RUN apt install -y ros-jazzy-rqt*
+RUN apt install -y ros-jazzy-rviz*
+
+CMD bash

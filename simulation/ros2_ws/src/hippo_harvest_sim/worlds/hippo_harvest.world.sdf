@@ -1,0 +1,296 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="hippo_harvest">
+    <gravity>0 0 -9.81</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+
+    <scene>
+      <ambient>0.7 0.7 0.7 1</ambient>
+      <background>0.95 0.95 0.95 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <model name="floor">
+      <static>true</static>
+      <link name="floor_link">
+        <collision name="floor_collision">
+          <geometry>
+            <box>
+              <size>42.672 25.908 0.1</size>
+            </box>
+          </geometry>
+          <pose>21.336 12.954 -0.05 0 0 0</pose>
+        </collision>
+        <visual name="floor_visual">
+          <geometry>
+            <box>
+              <size>42.672 25.908 0.1</size>
+            </box>
+          </geometry>
+          <pose>21.336 12.954 -0.05 0 0 0</pose>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="table_template_notes">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="note">
+        <visual name="hidden_visual">
+          <geometry>
+            <box>
+              <size>0.001 0.001 0.001</size>
+            </box>
+          </geometry>
+          <transparency>1.0</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <model name="row1_table1">
+      <static>true</static>
+      <pose>3.048 3.810 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>6.096 1.524 0.9</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>6.096 1.524 0.9</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.42 0.28 1</ambient>
+            <diffuse>0.55 0.42 0.28 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="row1_table2">
+      <static>true</static>
+      <pose>12.192 3.810 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row1_table3">
+      <static>true</static>
+      <pose>21.336 3.810 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row1_table4">
+      <static>true</static>
+      <pose>30.480 3.810 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row1_table5">
+      <static>true</static>
+      <pose>39.624 3.810 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row2_table1">
+      <static>true</static>
+      <pose>3.048 8.382 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row2_table2">
+      <static>true</static>
+      <pose>12.192 8.382 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row2_table3">
+      <static>true</static>
+      <pose>21.336 8.382 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row2_table4">
+      <static>true</static>
+      <pose>30.480 8.382 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row2_table5">
+      <static>true</static>
+      <pose>39.624 8.382 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row3_table1">
+      <static>true</static>
+      <pose>3.048 12.954 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row3_table2">
+      <static>true</static>
+      <pose>12.192 12.954 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row3_table3">
+      <static>true</static>
+      <pose>21.336 12.954 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row3_table4">
+      <static>true</static>
+      <pose>30.480 12.954 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row3_table5">
+      <static>true</static>
+      <pose>39.624 12.954 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row4_table1">
+      <static>true</static>
+      <pose>3.048 17.526 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row4_table2">
+      <static>true</static>
+      <pose>12.192 17.526 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row4_table3">
+      <static>true</static>
+      <pose>21.336 17.526 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row4_table4">
+      <static>true</static>
+      <pose>30.480 17.526 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row4_table5">
+      <static>true</static>
+      <pose>39.624 17.526 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row5_table1">
+      <static>true</static>
+      <pose>3.048 22.098 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row5_table2">
+      <static>true</static>
+      <pose>12.192 22.098 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row5_table3">
+      <static>true</static>
+      <pose>21.336 22.098 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row5_table4">
+      <static>true</static>
+      <pose>30.480 22.098 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+
+    <model name="row5_table5">
+      <static>true</static>
+      <pose>39.624 22.098 0.45 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>6.096 1.524 0.9</size></box></geometry></visual>
+      </link>
+    </model>
+  </world>
+</sdf>

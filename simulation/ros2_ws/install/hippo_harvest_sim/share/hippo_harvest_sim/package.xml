@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>hippo_harvest_sim</name>
+  <version>0.2.0</version>
+  <description>Simple empty-grid robot simulation with synthetic command-integrated localization for ROS 2 Jazzy.</description>
+  <maintainer email="user@example.com">Hippo Harvest</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>swri_transform_util</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
