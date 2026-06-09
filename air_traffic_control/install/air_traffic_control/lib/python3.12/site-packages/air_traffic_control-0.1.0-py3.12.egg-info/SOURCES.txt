@@ -1,0 +1,13 @@
+package.xml
+plugin.xml
+setup.cfg
+setup.py
+../../build/air_traffic_control/air_traffic_control.egg-info/PKG-INFO
+../../build/air_traffic_control/air_traffic_control.egg-info/SOURCES.txt
+../../build/air_traffic_control/air_traffic_control.egg-info/dependency_links.txt
+../../build/air_traffic_control/air_traffic_control.egg-info/requires.txt
+../../build/air_traffic_control/air_traffic_control.egg-info/top_level.txt
+../../build/air_traffic_control/air_traffic_control.egg-info/zip-safe
+air_traffic_control/__init__.py
+air_traffic_control/air_traffic_control_plugin.py
+resource/air_traffic_control

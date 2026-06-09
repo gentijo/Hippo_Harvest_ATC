@@ -8,6 +8,8 @@ from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
 
 from hippo_harvest_sim.layout_data import (
     cell_to_pose,
@@ -46,6 +48,9 @@ class MultiRobotOrchestrator(Node):
         self.robot_states = {}
         self.start_time_ns = None
         task_sequences = self._build_task_sequences()
+        atc_goal_qos = QoSProfile(depth=1)
+        atc_goal_qos.reliability = ReliabilityPolicy.RELIABLE
+        atc_goal_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
 
         for robot_index in range(1, self.robot_count + 1):
             robot_name = f"robot{robot_index}"
@@ -87,6 +92,10 @@ class MultiRobotOrchestrator(Node):
             self.robot_states[robot_name] = {
                 # Sends NavigateToPose action goals to each robot namespace.
                 "action_client": ActionClient(self, NavigateToPose, f"/{robot_name}/navigate_to_pose"),
+                # Publishes the decoded current goal for observability tools such
+                # as the Air Traffic Control RQT panel.
+                "atc_goal_name_pub": self.create_publisher(String, f"/{robot_name}/atc/current_goal_name", atc_goal_qos),
+                "atc_goal_pose_pub": self.create_publisher(PoseStamped, f"/{robot_name}/atc/current_goal", atc_goal_qos),
                 "goal_handle": None,
                 "goal_index": 0,
                 "goal_in_flight": False,
@@ -195,6 +204,7 @@ class MultiRobotOrchestrator(Node):
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = goal_spec["pose"]
         robot_state["reserved_workspace"] = goal_label if self._is_workspace_label(goal_label) else None
+        self._publish_current_goal(robot_state, goal_label, goal_spec["pose"])
         self.get_logger().info(
             f"{robot_name}: dispatching goal {robot_state['goal_index'] + 1}/{len(robot_state['goals'])} "
             f"[{goal_label}]"
@@ -326,11 +336,22 @@ class MultiRobotOrchestrator(Node):
         robot_state["reserved_workspace"] = None
         robot_state["result_future"] = None
         robot_state["wait_logged_for_return_lane"] = False
+        self._publish_current_goal(robot_state, "", None)
 
     def _goal_pose_for_workspace(self, workspace_id: str) -> PoseStamped:
         # Workspace task goals target the generated approach cell for that workspace.
         goal_x, goal_y = cell_to_pose(workspace_approach_cell(workspace_id))
         return self._pose_stamped(goal_x, goal_y, 0.0)
+
+    @staticmethod
+    def _publish_current_goal(robot_state: dict, goal_label: str, goal_pose: PoseStamped | None) -> None:
+        # Publish a human-readable goal label plus the goal pose so monitoring tools
+        # do not have to display opaque Nav2 action UUIDs.
+        name_msg = String()
+        name_msg.data = goal_label
+        robot_state["atc_goal_name_pub"].publish(name_msg)
+        if goal_pose is not None:
+            robot_state["atc_goal_pose_pub"].publish(goal_pose)
 
     def _pose_stamped(self, x: float, y: float, yaw: float) -> PoseStamped:
         # Helper for map-frame Nav2 goals with yaw-only orientation.

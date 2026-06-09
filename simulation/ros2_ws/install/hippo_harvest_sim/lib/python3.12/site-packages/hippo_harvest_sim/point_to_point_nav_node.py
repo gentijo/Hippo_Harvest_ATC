@@ -21,15 +21,28 @@ from hippo_harvest_sim.layout_data import (
 class PointToPointNavNode(Node):
     def __init__(self) -> None:
         super().__init__("point_to_point_nav_node")
+
+        # Publishes raw velocity commands for the simple robot node to limit/execute.
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+
+        # Publishes the initial pose consumed by synthetic localization.
         self.start_pose_pub = self.create_publisher(PoseStamped, "/nav/start_pose", 10)
+
+        # Publishes visualization/helper poses for the route start and current target.
         self.waypoint_a_pub = self.create_publisher(PoseStamped, "/waypoint_a", 10)
         self.waypoint_b_pub = self.create_publisher(PoseStamped, "/waypoint_b", 10)
+
+        # Publishes marker arrays and planned path output for RViz/debugging.
         self.marker_pub = self.create_publisher(MarkerArray, "/waypoint_markers", 10)
         self.plan_pub = self.create_publisher(Path, "/nav_plan", 10)
+
+        # Listens to the synthetic localization pose and drives from that estimate.
         self.pose_sub = self.create_subscription(PoseStamped, "/synthetic_pose", self.on_pose, 10)
+
+        # Controller/update loop at 10 Hz.
         self.timer = self.create_timer(0.1, self.on_timer)
 
+        # Controller and planning constants for the simple point-to-point route.
         self.grid_resolution = GRID_RESOLUTION_M
         self.goal_tolerance = 0.04
         self.max_linear_speed = 0.10
@@ -41,6 +54,7 @@ class PointToPointNavNode(Node):
         self.workspace_tables = generate_tables()
         self.occupied = planning_occupied_cells()
 
+        # Hard-coded route: start at the default cell, visit ws2, then ws10.
         self.start_cell = default_start_cell()
         self.target_workspace_ids = ["ws2", "ws10"]
         self.target_cells = [workspace_approach_cell(workspace_id) for workspace_id in self.target_workspace_ids]
@@ -59,6 +73,7 @@ class PointToPointNavNode(Node):
         )
 
     def _make_pose(self, x: float, y: float) -> PoseStamped:
+        # Helper for map-frame PoseStamped messages with no yaw rotation.
         msg = PoseStamped()
         msg.header.frame_id = "map"
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -68,14 +83,18 @@ class PointToPointNavNode(Node):
         return msg
 
     def _publish_start_pose(self) -> None:
+        # Re-publish the start pose until localization sends its first pose update.
         self.start_pose_pub.publish(self._make_pose(self.a_pose[0], self.a_pose[1]))
 
     def _publish_waypoint_poses(self) -> None:
+        # waypoint_a is the route start; waypoint_b is the active target workspace.
         self.waypoint_a_pub.publish(self._make_pose(self.a_pose[0], self.a_pose[1]))
         current_goal_pose = cell_to_pose(self.target_cells[self.current_target_index])
         self.waypoint_b_pub.publish(self._make_pose(current_goal_pose[0], current_goal_pose[1]))
 
     def _publish_waypoint_markers(self) -> None:
+        # MarkerArray output: start marker, route target markers, all workstation
+        # approach points, and text labels for RViz.
         now = self.get_clock().now().to_msg()
         markers = MarkerArray()
 
@@ -202,6 +221,7 @@ class PointToPointNavNode(Node):
         self.marker_pub.publish(markers)
 
     def _neighbors(self, cell):
+        # Four-connected grid neighbors that are in bounds and not planning obstacles.
         x, y = cell
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             nxt = (x + dx, y + dy)
@@ -213,6 +233,7 @@ class PointToPointNavNode(Node):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
     def _a_star(self, start, goal):
+        # A* over grid cells using Manhattan distance and unit movement cost.
         frontier = []
         heapq.heappush(frontier, (0, start))
         came_from = {start: None}
@@ -243,6 +264,7 @@ class PointToPointNavNode(Node):
         return path
 
     def _publish_plan(self):
+        # Publish the current grid path as a nav_msgs/Path in map-frame meters.
         plan = Path()
         plan.header.frame_id = "map"
         plan.header.stamp = self.get_clock().now().to_msg()
@@ -252,6 +274,7 @@ class PointToPointNavNode(Node):
         self.plan_pub.publish(plan)
 
     def _plan_current_leg(self, start_cell):
+        # Re-plan from the supplied start cell to the active target workspace.
         target_cell = self.target_cells[self.current_target_index]
         self.current_path_cells = self._a_star(start_cell, target_cell)
         self.current_path_index = 1 if len(self.current_path_cells) > 1 else 0
@@ -263,12 +286,14 @@ class PointToPointNavNode(Node):
         )
 
     def _distance_to_current_goal(self):
+        # Euclidean distance from the current localization pose to the active target.
         goal_x, goal_y = cell_to_pose(self.target_cells[self.current_target_index])
         dx = goal_x - self.current_pose.pose.position.x
         dy = goal_y - self.current_pose.pose.position.y
         return math.hypot(dx, dy)
 
     def _advance_goal_if_needed(self):
+        # When the active workspace is reached, either finish or plan the next leg.
         distance_to_goal = self._distance_to_current_goal()
         if distance_to_goal > self.goal_tolerance:
             return False
@@ -288,12 +313,14 @@ class PointToPointNavNode(Node):
         return True
 
     def on_pose(self, msg: PoseStamped) -> None:
+        # Synthetic localization callback. The first pose means the start pose was accepted.
         self.current_pose = msg
         if not self.started:
             self.started = True
             self.get_logger().info("Navigation received first localization update")
 
     def on_timer(self) -> None:
+        # Always refresh visualization topics, even before navigation starts.
         self._publish_waypoint_poses()
         self._publish_waypoint_markers()
         self._publish_plan()
@@ -302,6 +329,7 @@ class PointToPointNavNode(Node):
             self._publish_start_pose()
             return
 
+        # Stop commanding once the route is done or before any pose has arrived.
         if self.completed or self.current_pose is None:
             return
 
@@ -309,6 +337,8 @@ class PointToPointNavNode(Node):
             return
 
         if self.current_path_index >= len(self.current_path_cells):
+            # If the path is exhausted but the final target is not reached, stop
+            # instead of driving without a target cell.
             if self._distance_to_current_goal() <= self.goal_tolerance:
                 self._advance_goal_if_needed()
             else:
@@ -318,6 +348,8 @@ class PointToPointNavNode(Node):
         target_cell = self.current_path_cells[self.current_path_index]
         target_pose = cell_to_pose(target_cell)
         cmd = Twist()
+
+        # Pure pursuit-style controller toward the next grid-cell center.
         x = self.current_pose.pose.position.x
         y = self.current_pose.pose.position.y
         yaw = self._yaw_from_pose(self.current_pose)
@@ -334,9 +366,11 @@ class PointToPointNavNode(Node):
         yaw_error = self._normalize_angle(target_yaw - yaw)
 
         if abs(yaw_error) > self.heading_tolerance:
+            # Turn in place until roughly aligned with the next path segment.
             cmd.angular.z = max(-self.max_angular_speed, min(self.max_angular_speed, 2.0 * yaw_error))
             cmd.linear.x = 0.0
         else:
+            # Drive forward while applying a smaller heading correction.
             cmd.angular.z = max(-0.2, min(0.2, 1.5 * yaw_error))
             cmd.linear.x = min(self.max_linear_speed, 1.5 * distance)
 

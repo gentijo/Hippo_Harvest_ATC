@@ -14,18 +14,29 @@ from hippo_harvest_sim.layout_data import (
 class WaypointMarkerPublisher(Node):
     def __init__(self) -> None:
         super().__init__("waypoint_marker_publisher")
+
+        # Number of robot home markers to generate along the west side of the map.
         self.declare_parameter("robot_count", 10)
         self.robot_count = int(self.get_parameter("robot_count").value)
+
+        # Publishes helper waypoint poses for consumers/visualizers that expect them.
         self.waypoint_a_pub = self.create_publisher(PoseStamped, "/waypoint_a", 10)
         self.waypoint_b_pub = self.create_publisher(PoseStamped, "/waypoint_b", 10)
+
+        # Publishes all route/home/workspace markers as one MarkerArray.
         self.marker_pub = self.create_publisher(MarkerArray, "/waypoint_markers", 10)
+
+        # Layout-derived home cells and workspace approach cells.
         self.home_cells = robot_home_cells(self.robot_count)
         self.target_workspace_ids = [table["id"] for table in generate_tables()]
         self.target_cells = [workspace_approach_cell(workspace_id) for workspace_id in self.target_workspace_ids]
         self.workspace_tables = generate_tables()
+
+        # Periodic republish keeps RViz displays populated after restarts.
         self.timer = self.create_timer(1.0, self.on_timer)
 
     def _make_pose(self, x: float, y: float) -> PoseStamped:
+        # Helper for map-frame PoseStamped messages with no yaw rotation.
         msg = PoseStamped()
         msg.header.frame_id = "map"
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -35,6 +46,7 @@ class WaypointMarkerPublisher(Node):
         return msg
 
     def on_timer(self) -> None:
+        # waypoint_a is the first robot home; waypoint_b is the first workspace target.
         first_home_pose = cell_to_pose(self.home_cells[0])
         self.waypoint_a_pub.publish(self._make_pose(first_home_pose[0], first_home_pose[1]))
         current_goal_pose = cell_to_pose(self.target_cells[0])
@@ -42,10 +54,13 @@ class WaypointMarkerPublisher(Node):
         self._publish_waypoint_markers()
 
     def _publish_waypoint_markers(self) -> None:
+        # MarkerArray output includes home positions, workspace approach targets,
+        # workstation points, and text labels for RViz.
         now = self.get_clock().now().to_msg()
         markers = MarkerArray()
 
         for index, home_cell in enumerate(self.home_cells, start=1):
+            # Green markers label each robot's home cell.
             home_pose = cell_to_pose(home_cell)
 
             home_marker = Marker()
@@ -87,6 +102,7 @@ class WaypointMarkerPublisher(Node):
             markers.markers.append(home_label)
 
         for idx, workspace_id in enumerate(self.target_workspace_ids, start=1):
+            # Red route-target markers show each workspace approach cell.
             target_pose = cell_to_pose(self.target_cells[idx - 1])
 
             goal_marker = Marker()
@@ -128,6 +144,7 @@ class WaypointMarkerPublisher(Node):
             markers.markers.append(label)
 
         for index, table in enumerate(self.workspace_tables, start=1):
+            # Yellow workstation markers show the generated workspace waypoint cells.
             pose_x, pose_y = cell_to_pose(table["waypoint_cell"])
 
             marker = Marker()

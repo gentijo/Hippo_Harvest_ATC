@@ -1,0 +1,18 @@
+<library path="air_traffic_control">
+  <class
+    name="Air Traffic Control Monitor"
+    type="air_traffic_control.air_traffic_control_plugin.AirTrafficControlPlugin"
+    base_class_type="rqt_gui_py::Plugin">
+    <description>
+      Displays robot pose, current navigation goal status, nearest-neighbor distance,
+      and whether that distance is increasing or decreasing.
+    </description>
+    <qtgui>
+      <group>
+        <label>Hippo Harvest</label>
+      </group>
+      <label>Air Traffic Control Monitor</label>
+      <statustip>Monitor nearest-neighbor traffic-control metrics for simulator robots.</statustip>
+    </qtgui>
+  </class>
+</library>
