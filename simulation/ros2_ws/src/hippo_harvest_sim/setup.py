@@ -32,6 +32,7 @@ setup(
             "initial_pose_publisher = hippo_harvest_sim.initial_pose_publisher:main",
             "waypoint_marker_publisher = hippo_harvest_sim.waypoint_marker_publisher:main",
             "nav2_work_area_goal = hippo_harvest_sim.nav2_work_area_goal:main",
+            "multi_robot_orchestrator = hippo_harvest_sim.multi_robot_orchestrator:main",
         ],
     },
 )

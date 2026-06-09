@@ -11,10 +11,12 @@ BUFFER_CELLS = 40
 FIRST_TABLE_NW_X = 40
 FIRST_TABLE_NW_Y_FROM_NORTH = 40
 
-TABLE_BUFFER_CELLS = 2
+TABLE_BUFFER_CELLS = 3
 WALL_BUFFER_CELLS = 2
-
-
+WORKSPACE_APPROACH_OFFSET_CELLS = 12
+ROBOT_HOME_X_CELLS = 12
+ROBOT_STAGING_X_CELLS = 24
+ROBOT_RETURN_TRANSIT_X_CELLS = 30
 def generate_tables():
     tables = []
     for row in range(TABLE_ROWS):
@@ -28,7 +30,7 @@ def generate_tables():
             index = row * TABLE_COLUMNS + col + 1
             center_x = left_x + TABLE_WIDTH_CELLS / 2.0
             center_y = bottom_y + TABLE_HEIGHT_CELLS / 2.0
-            south_edge_cell = (int(center_x), bottom_y - TABLE_BUFFER_CELLS - 1)
+            south_edge_cell = (int(center_x), bottom_y - WORKSPACE_APPROACH_OFFSET_CELLS)
             tables.append(
                 {
                     "id": f"ws{index}",
@@ -110,6 +112,78 @@ def free_cells_with_margin(margin=0):
 
 def default_start_cell():
     return (WALL_BUFFER_CELLS, WALL_BUFFER_CELLS)
+
+
+def robot_home_cells(robot_count: int = 10):
+    if robot_count <= 0:
+        return []
+
+    home_x = ROBOT_HOME_X_CELLS
+    min_y = WALL_BUFFER_CELLS
+    max_y = GRID_HEIGHT_CELLS - WALL_BUFFER_CELLS - 1
+
+    if robot_count == 1:
+        candidate_cells = [(home_x, (min_y + max_y) // 2)]
+    else:
+        span = max_y - min_y
+        candidate_cells = []
+        for index in range(robot_count):
+            ratio = index / (robot_count - 1)
+            y = int(round(min_y + ratio * span))
+            candidate_cells.append((home_x, y))
+
+    occupied = planning_occupied_cells()
+    validated_cells = []
+    used_cells = set()
+    for x, y in candidate_cells:
+        while (x, y) in occupied or (x, y) in used_cells:
+            y += 1
+            if y > max_y:
+                raise RuntimeError("Unable to place all robot home cells along the west wall")
+        used_cells.add((x, y))
+        validated_cells.append((x, y))
+
+    return validated_cells
+
+
+def robot_home_cell(robot_index: int, robot_count: int = 10):
+    if robot_index < 1 or robot_index > robot_count:
+        raise ValueError(f"robot_index must be in [1, {robot_count}], got {robot_index}")
+    return robot_home_cells(robot_count)[robot_index - 1]
+
+
+def robot_staging_cell(robot_index: int, robot_count: int = 10):
+    home_x, home_y = robot_home_cell(robot_index, robot_count)
+    cell = (ROBOT_STAGING_X_CELLS, home_y)
+    if is_in_bounds(cell) and cell not in planning_occupied_cells():
+        return cell
+    raise RuntimeError(f"No free staging cell found for robot{robot_index}")
+
+
+def robot_return_transit_cell(workspace_id: str):
+    _, aisle_y = robot_return_aisle_entry_cell(workspace_id)
+    cell = (ROBOT_RETURN_TRANSIT_X_CELLS, aisle_y)
+    if is_in_bounds(cell) and cell not in planning_occupied_cells():
+        return cell
+    raise RuntimeError(f"No free return transit cell found for workspace {workspace_id}")
+
+
+def robot_return_aisle_entry_cell(workspace_id: str):
+    workspace_x, workspace_y = workspace_approach_cell(workspace_id)
+    occupied = planning_occupied_cells()
+    for offset in range(1, workspace_y - WALL_BUFFER_CELLS + 1):
+        cell = (workspace_x, workspace_y - offset)
+        if is_in_bounds(cell) and cell not in occupied:
+            return cell
+    raise RuntimeError(f"No free return aisle entry cell found for workspace {workspace_id}")
+
+
+def robot_return_stage_transit_cell(robot_index: int, robot_count: int = 10):
+    _, home_y = robot_home_cell(robot_index, robot_count)
+    cell = (ROBOT_RETURN_TRANSIT_X_CELLS, home_y)
+    if is_in_bounds(cell) and cell not in planning_occupied_cells():
+        return cell
+    raise RuntimeError(f"No free return stage transit cell found for robot{robot_index}")
 
 
 def workspace_approach_cell(workspace_id: str):

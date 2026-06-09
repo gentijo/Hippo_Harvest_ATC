@@ -17,8 +17,9 @@ grid:
   robot_cell_definition: cell_under_robot_center
 
 robot:
-  count: 1
-  name: simple_three_wheel_robot
+  count: 10
+  names: robot1..robot10
+  home_layout: equally_spaced_along_west_wall
   footprint_m:
     width: 0.125
     length: 0.125
@@ -57,9 +58,10 @@ localization:
   update_rate_hz: 10.0
 
 navigation:
-  behavior: grid_a_star_route
-  route: [ws2, ws10]
-  start_cell: southwest_corner_inside_wall_buffer
+  behavior: nav2_async_multi_robot
+  per_robot_route: random_2_workstations_then_home
+  home_waypoints: robot1..robot10
+  start_cell: west_wall_home_positions
   planning_obstacles:
     source: inflated_tables_and_wall_buffer
     table_buffer_cells: 2

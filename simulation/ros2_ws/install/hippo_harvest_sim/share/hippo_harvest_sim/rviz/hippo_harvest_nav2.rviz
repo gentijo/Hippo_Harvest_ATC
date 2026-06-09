@@ -156,5 +156,17 @@ Visualization Manager:
       X: 2.25
       Y: 1.6875
 Window Geometry:
+  Displays:
+    collapsed: false
   Height: 900
+  Hide Left Dock: true
+  Hide Right Dock: false
+  Selection:
+    collapsed: false
+  Time:
+    collapsed: false
+  Tool Properties:
+    collapsed: false
+  Views:
+    collapsed: false
   Width: 1400

@@ -4,21 +4,30 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 
-from hippo_harvest_sim.layout_data import cell_to_pose
+from hippo_harvest_sim.layout_data import cell_to_pose, robot_home_cell
 
 
 class InitialPosePublisher(Node):
     def __init__(self) -> None:
         super().__init__("initial_pose_publisher")
-        self.publisher = self.create_publisher(PoseStamped, "/nav/start_pose", 10)
+        self.declare_parameter("start_pose_topic", "nav/start_pose")
+        self.declare_parameter("robot_index", 1)
+        self.declare_parameter("robot_count", 10)
+        self.declare_parameter("start_yaw", 0.0)
+
+        start_pose_topic = str(self.get_parameter("start_pose_topic").value)
+        robot_index = int(self.get_parameter("robot_index").value)
+        robot_count = int(self.get_parameter("robot_count").value)
+        self.start_yaw = float(self.get_parameter("start_yaw").value)
+
+        self.publisher = self.create_publisher(PoseStamped, start_pose_topic, 10)
         self.publish_count = 0
         self.max_publishes = 5
         self.timer = self.create_timer(1.0, self.on_timer)
 
-        x, y = cell_to_pose((20, 20))
+        x, y = cell_to_pose(robot_home_cell(robot_index, robot_count))
         self.start_x = x
         self.start_y = y
-        self.start_yaw = math.atan2(2.1875 - y, 1.8875 - x)
 
     def on_timer(self) -> None:
         if self.publish_count >= self.max_publishes:
@@ -46,6 +55,9 @@ def main() -> None:
     node = InitialPosePublisher()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

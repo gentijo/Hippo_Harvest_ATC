@@ -6,11 +6,21 @@ from rclpy.node import Node
 class SimpleRobotNode(Node):
     def __init__(self) -> None:
         super().__init__("simple_robot_node")
-        self.max_linear_speed = 0.10
-        self.max_angular_speed = 0.6
-        self.command_sub = self.create_subscription(Twist, "/cmd_vel", self.on_command, 10)
-        self.executed_pub = self.create_publisher(Twist, "/executed_cmd_vel", 10)
-        self.get_logger().info("Simple robot node ready")
+        self.declare_parameter("max_linear_speed", 0.10)
+        self.declare_parameter("max_angular_speed", 0.6)
+        self.declare_parameter("command_topic", "cmd_vel")
+        self.declare_parameter("executed_command_topic", "executed_cmd_vel")
+        self.declare_parameter("robot_name", self.get_namespace().strip("/") or "robot")
+
+        self.max_linear_speed = float(self.get_parameter("max_linear_speed").value)
+        self.max_angular_speed = float(self.get_parameter("max_angular_speed").value)
+        command_topic = str(self.get_parameter("command_topic").value)
+        executed_command_topic = str(self.get_parameter("executed_command_topic").value)
+        robot_name = str(self.get_parameter("robot_name").value)
+
+        self.command_sub = self.create_subscription(Twist, command_topic, self.on_command, 10)
+        self.executed_pub = self.create_publisher(Twist, executed_command_topic, 10)
+        self.get_logger().info(f"Simple robot node ready for {robot_name}")
 
     def on_command(self, msg: Twist) -> None:
         executed = Twist()
@@ -30,6 +40,9 @@ def main() -> None:
     node = SimpleRobotNode()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

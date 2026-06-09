@@ -5,8 +5,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from hippo_harvest_sim.layout_data import (
     cell_to_pose,
-    default_start_cell,
     generate_tables,
+    robot_home_cells,
     workspace_approach_cell,
 )
 
@@ -14,12 +14,13 @@ from hippo_harvest_sim.layout_data import (
 class WaypointMarkerPublisher(Node):
     def __init__(self) -> None:
         super().__init__("waypoint_marker_publisher")
+        self.declare_parameter("robot_count", 10)
+        self.robot_count = int(self.get_parameter("robot_count").value)
         self.waypoint_a_pub = self.create_publisher(PoseStamped, "/waypoint_a", 10)
         self.waypoint_b_pub = self.create_publisher(PoseStamped, "/waypoint_b", 10)
         self.marker_pub = self.create_publisher(MarkerArray, "/waypoint_markers", 10)
-        self.start_pose = cell_to_pose(default_start_cell())
-        self.spawn_pose = cell_to_pose((20, 20))
-        self.target_workspace_ids = ["ws2", "ws10"]
+        self.home_cells = robot_home_cells(self.robot_count)
+        self.target_workspace_ids = [table["id"] for table in generate_tables()]
         self.target_cells = [workspace_approach_cell(workspace_id) for workspace_id in self.target_workspace_ids]
         self.workspace_tables = generate_tables()
         self.timer = self.create_timer(1.0, self.on_timer)
@@ -34,7 +35,8 @@ class WaypointMarkerPublisher(Node):
         return msg
 
     def on_timer(self) -> None:
-        self.waypoint_a_pub.publish(self._make_pose(self.start_pose[0], self.start_pose[1]))
+        first_home_pose = cell_to_pose(self.home_cells[0])
+        self.waypoint_a_pub.publish(self._make_pose(first_home_pose[0], first_home_pose[1]))
         current_goal_pose = cell_to_pose(self.target_cells[0])
         self.waypoint_b_pub.publish(self._make_pose(current_goal_pose[0], current_goal_pose[1]))
         self._publish_waypoint_markers()
@@ -43,81 +45,46 @@ class WaypointMarkerPublisher(Node):
         now = self.get_clock().now().to_msg()
         markers = MarkerArray()
 
-        start_marker = Marker()
-        start_marker.header.frame_id = "map"
-        start_marker.header.stamp = now
-        start_marker.ns = "waypoints"
-        start_marker.id = 0
-        start_marker.type = Marker.SPHERE
-        start_marker.action = Marker.ADD
-        start_marker.pose.position.x = self.start_pose[0]
-        start_marker.pose.position.y = self.start_pose[1]
-        start_marker.pose.orientation.w = 1.0
-        start_marker.scale.x = 0.18
-        start_marker.scale.y = 0.18
-        start_marker.scale.z = 0.08
-        start_marker.color.a = 1.0
-        start_marker.color.r = 0.1
-        start_marker.color.g = 0.8
-        start_marker.color.b = 0.1
-        markers.markers.append(start_marker)
+        for index, home_cell in enumerate(self.home_cells, start=1):
+            home_pose = cell_to_pose(home_cell)
 
-        start_label = Marker()
-        start_label.header.frame_id = "map"
-        start_label.header.stamp = now
-        start_label.ns = "waypoint_labels"
-        start_label.id = 100
-        start_label.type = Marker.TEXT_VIEW_FACING
-        start_label.action = Marker.ADD
-        start_label.pose.position.x = self.start_pose[0]
-        start_label.pose.position.y = self.start_pose[1]
-        start_label.pose.position.z = 0.18
-        start_label.pose.orientation.w = 1.0
-        start_label.scale.z = 0.14
-        start_label.color.a = 1.0
-        start_label.color.r = 1.0
-        start_label.color.g = 1.0
-        start_label.color.b = 1.0
-        start_label.text = "START"
-        markers.markers.append(start_label)
+            home_marker = Marker()
+            home_marker.header.frame_id = "map"
+            home_marker.header.stamp = now
+            home_marker.ns = "waypoints"
+            home_marker.id = index
+            home_marker.type = Marker.SPHERE
+            home_marker.action = Marker.ADD
+            home_marker.pose.position.x = home_pose[0]
+            home_marker.pose.position.y = home_pose[1]
+            home_marker.pose.orientation.w = 1.0
+            home_marker.scale.x = 0.16
+            home_marker.scale.y = 0.16
+            home_marker.scale.z = 0.08
+            home_marker.color.a = 1.0
+            home_marker.color.r = 0.1
+            home_marker.color.g = 0.8
+            home_marker.color.b = 0.1
+            markers.markers.append(home_marker)
 
-        spawn_marker = Marker()
-        spawn_marker.header.frame_id = "map"
-        spawn_marker.header.stamp = now
-        spawn_marker.ns = "waypoints"
-        spawn_marker.id = 50
-        spawn_marker.type = Marker.CUBE
-        spawn_marker.action = Marker.ADD
-        spawn_marker.pose.position.x = self.spawn_pose[0]
-        spawn_marker.pose.position.y = self.spawn_pose[1]
-        spawn_marker.pose.orientation.w = 1.0
-        spawn_marker.scale.x = 0.12
-        spawn_marker.scale.y = 0.12
-        spawn_marker.scale.z = 0.08
-        spawn_marker.color.a = 1.0
-        spawn_marker.color.r = 0.1
-        spawn_marker.color.g = 0.6
-        spawn_marker.color.b = 1.0
-        markers.markers.append(spawn_marker)
-
-        spawn_label = Marker()
-        spawn_label.header.frame_id = "map"
-        spawn_label.header.stamp = now
-        spawn_label.ns = "waypoint_labels"
-        spawn_label.id = 150
-        spawn_label.type = Marker.TEXT_VIEW_FACING
-        spawn_label.action = Marker.ADD
-        spawn_label.pose.position.x = self.spawn_pose[0]
-        spawn_label.pose.position.y = self.spawn_pose[1]
-        spawn_label.pose.position.z = 0.18
-        spawn_label.pose.orientation.w = 1.0
-        spawn_label.scale.z = 0.12
-        spawn_label.color.a = 1.0
-        spawn_label.color.r = 0.8
-        spawn_label.color.g = 0.95
-        spawn_label.color.b = 1.0
-        spawn_label.text = "SPAWN"
-        markers.markers.append(spawn_label)
+            home_label = Marker()
+            home_label.header.frame_id = "map"
+            home_label.header.stamp = now
+            home_label.ns = "waypoint_labels"
+            home_label.id = 100 + index
+            home_label.type = Marker.TEXT_VIEW_FACING
+            home_label.action = Marker.ADD
+            home_label.pose.position.x = home_pose[0]
+            home_label.pose.position.y = home_pose[1]
+            home_label.pose.position.z = 0.18
+            home_label.pose.orientation.w = 1.0
+            home_label.scale.z = 0.10
+            home_label.color.a = 1.0
+            home_label.color.r = 1.0
+            home_label.color.g = 1.0
+            home_label.color.b = 1.0
+            home_label.text = f"robot{index}"
+            markers.markers.append(home_label)
 
         for idx, workspace_id in enumerate(self.target_workspace_ids, start=1):
             target_pose = cell_to_pose(self.target_cells[idx - 1])
@@ -209,6 +176,9 @@ def main() -> None:
     node = WaypointMarkerPublisher()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

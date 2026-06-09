@@ -3,7 +3,7 @@ bt_navigator:
     use_sim_time: true
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /odom
+    odom_topic: odom
     default_nav_to_pose_bt_xml: /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml
 
 behavior_server:
@@ -31,39 +31,60 @@ controller_server:
     min_y_velocity_threshold: 0.0
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
+    current_progress_checker: "progress_checker"
+    current_goal_checker: "goal_checker"
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.03
-      movement_time_allowance: 30.0
+      movement_time_allowance: 45.0
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.12
+      xy_goal_tolerance: 0.24
       yaw_goal_tolerance: 3.2
       stateful: false
-    FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.08
-      min_approach_linear_velocity: 0.02
-      approach_velocity_scaling_dist: 0.20
-      lookahead_dist: 0.25
-      min_lookahead_dist: 0.12
-      max_lookahead_dist: 0.35
-      lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.35
-      transform_tolerance: 0.2
-      use_velocity_scaled_lookahead_dist: false
-      use_collision_detection: true
-      use_rotate_to_heading: true
-      allow_reversing: false
-      regulated_linear_scaling_min_radius: 0.25
-      regulated_linear_scaling_min_speed: 0.02
-      cost_scaling_dist: 0.20
-      cost_scaling_gain: 1.0
-      inflation_cost_scaling_factor: 3.0
-      max_allowed_time_to_collision_up_to_carrot: 1.0
+    FollowPath.plugin: "dwb_core::DWBLocalPlanner"
+    FollowPath.debug_trajectory_details: false
+    FollowPath.min_vel_x: 0.0
+    FollowPath.max_vel_x: 0.10
+    FollowPath.min_speed_xy: 0.0
+    FollowPath.max_speed_xy: 0.10
+    FollowPath.min_speed_theta: 0.0
+    FollowPath.max_vel_theta: 0.6
+    FollowPath.acc_lim_x: 0.5
+    FollowPath.decel_lim_x: -0.5
+    FollowPath.acc_lim_theta: 1.0
+    FollowPath.decel_lim_theta: -1.0
+    FollowPath.vx_samples: 8
+    FollowPath.vy_samples: 1
+    FollowPath.vtheta_samples: 12
+    FollowPath.lookahead_time: 1.5
+    FollowPath.sim_time: 1.0
+    FollowPath.transform_tolerance: 0.2
+    FollowPath.xy_goal_tolerance: 0.24
+    FollowPath.trans_stopped_velocity: 0.01
+    FollowPath.short_circuit_trajectory_evaluation: true
+    FollowPath.stateful: false
+    FollowPath.critics:
+      - RotateToGoal
+      - Oscillation
+      - BaseObstacle
+      - GoalAlign
+      - PathAlign
+      - PathDist
+      - GoalDist
+    FollowPath.BaseObstacle.scale: 0.02
+    FollowPath.PathAlign.scale: 12.0
+    FollowPath.PathAlign.forward_point_distance: 0.10
+    FollowPath.GoalAlign.scale: 8.0
+    FollowPath.GoalAlign.forward_point_distance: 0.10
+    FollowPath.PathDist.scale: 18.0
+    FollowPath.GoalDist.scale: 12.0
+    FollowPath.RotateToGoal.scale: 16.0
+    FollowPath.RotateToGoal.slowing_factor: 5.0
+    FollowPath.RotateToGoal.lookahead_time: -1.0
 
 local_costmap:
   local_costmap:
@@ -77,13 +98,14 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.025
-      robot_radius: 0.06
+      robot_radius: 0.05
       plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: /map
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.08
+        inflation_radius: 0.06
         cost_scaling_factor: 3.0
 
 map_server:
@@ -97,7 +119,7 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.05
+      tolerance: 0.20
       use_astar: true
 
 global_costmap:
@@ -109,14 +131,15 @@ global_costmap:
       update_frequency: 2.0
       publish_frequency: 1.0
       resolution: 0.025
-      robot_radius: 0.06
+      robot_radius: 0.05
       track_unknown_space: false
       plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: /map
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.08
+        inflation_radius: 0.06
         cost_scaling_factor: 3.0
 
 lifecycle_manager_navigation:
