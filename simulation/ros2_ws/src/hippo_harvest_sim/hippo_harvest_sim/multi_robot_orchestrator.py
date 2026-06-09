@@ -24,6 +24,8 @@ from hippo_harvest_sim.layout_data import (
 class MultiRobotOrchestrator(Node):
     def __init__(self) -> None:
         super().__init__("multi_robot_orchestrator")
+
+        # Orchestration parameters for the multi-robot Nav2 demo.
         self.declare_parameter("robot_count", 10)
         self.declare_parameter("task_waypoint_count", 2)
         self.declare_parameter("shuffle_seed", 42)
@@ -38,6 +40,7 @@ class MultiRobotOrchestrator(Node):
         self.return_goal_timeout_sec = float(self.get_parameter("return_goal_timeout_sec").value)
         self.start_stagger_sec = float(self.get_parameter("start_stagger_sec").value)
 
+        # Shuffle workspace assignment deterministically so repeated runs are stable.
         self.random = random.Random(shuffle_seed)
         self.workspace_ids = [table["id"] for table in generate_tables()]
         self.robot_states = {}
@@ -46,6 +49,9 @@ class MultiRobotOrchestrator(Node):
 
         for robot_index in range(1, self.robot_count + 1):
             robot_name = f"robot{robot_index}"
+
+            # Build the full route for this robot: staging, assigned workspaces,
+            # return-lane waypoints, staging again, then home.
             home_x, home_y = cell_to_pose(robot_home_cell(robot_index, self.robot_count))
             stage_x, stage_y = cell_to_pose(robot_staging_cell(robot_index, self.robot_count))
             workspace_ids = task_sequences[robot_index - 1]
@@ -79,47 +85,60 @@ class MultiRobotOrchestrator(Node):
             goals.append({"label": f"{robot_name}_return_stage", "pose": self._pose_stamped(stage_x, stage_y, 0.0)})
             goals.append({"label": robot_name, "pose": self._pose_stamped(home_x, home_y, 0.0)})
             self.robot_states[robot_name] = {
+                # Sends NavigateToPose action goals to each robot namespace.
                 "action_client": ActionClient(self, NavigateToPose, f"/{robot_name}/navigate_to_pose"),
                 "goal_handle": None,
                 "goal_index": 0,
                 "goal_in_flight": False,
                 "goal_start_time_ns": None,
                 "goals": goals,
+                # Start robots at different times to reduce immediate traffic conflicts.
                 "release_delay_ns": int((robot_index - 1) * self.start_stagger_sec * 1e9),
                 "ready": False,
                 "ready_query_in_flight": False,
+                # Workspace reservations keep two robots from targeting the same
+                # workspace at the same time.
                 "reserved_workspace": None,
                 "result_future": None,
+                # Queries the robot's bt_navigator lifecycle state before sending goals.
                 "state_client": self.create_client(GetState, f"/{robot_name}/bt_navigator/get_state"),
                 "wait_logged_for_workspace": None,
                 "wait_logged_for_return_lane": False,
             }
 
+        # Main scheduler: checks readiness, dispatches goals, and handles results.
         self.timer = self.create_timer(1.0, self._tick)
 
     def _tick(self) -> None:
+        # Establish a common start time so release_delay_ns is relative to this node.
         if self.start_time_ns is None:
             self.start_time_ns = self.get_clock().now().nanoseconds
 
         for robot_name, robot_state in self.robot_states.items():
+            # Wait for each robot's Nav2 stack to become active before dispatching.
             if not robot_state["ready"]:
                 self._request_nav_ready(robot_name, robot_state)
                 continue
 
+            # Stagger robot starts to reduce congestion at the beginning of the run.
             elapsed_ns = self.get_clock().now().nanoseconds - self.start_time_ns
             if elapsed_ns < robot_state["release_delay_ns"]:
                 continue
 
+            # While a goal is active, poll its result or timeout.
             if robot_state["goal_in_flight"]:
                 self._check_goal_result(robot_name, robot_state)
                 continue
 
+            # A robot with no remaining goals is done.
             if robot_state["goal_index"] >= len(robot_state["goals"]):
                 continue
 
             self._dispatch_goal(robot_name, robot_state)
 
     def _build_task_sequences(self) -> list[list[str]]:
+        # Round-robin the shuffled workspaces so each robot gets task_waypoint_count
+        # workspace goals without every robot taking the same sequence.
         shuffled = list(self.workspace_ids)
         self.random.shuffle(shuffled)
         sequences = [[] for _ in range(self.robot_count)]
@@ -132,6 +151,7 @@ class MultiRobotOrchestrator(Node):
         return sequences
 
     def _request_nav_ready(self, robot_name: str, robot_state: dict) -> None:
+        # Avoid stacking multiple lifecycle service requests for the same robot.
         if robot_state["ready_query_in_flight"]:
             return
 
@@ -144,6 +164,7 @@ class MultiRobotOrchestrator(Node):
         future.add_done_callback(lambda done: self._on_state_response(robot_name, robot_state, done))
 
     def _on_state_response(self, robot_name: str, robot_state: dict, future) -> None:
+        # Mark the robot ready only when bt_navigator reports the active state.
         robot_state["ready_query_in_flight"] = False
         try:
             response = future.result()
@@ -156,12 +177,14 @@ class MultiRobotOrchestrator(Node):
             self.get_logger().info(f"{robot_name}: Nav2 is active")
 
     def _dispatch_goal(self, robot_name: str, robot_state: dict) -> None:
+        # Send the next NavigateToPose goal if the action server is available.
         action_client = robot_state["action_client"]
         if not action_client.wait_for_server(timeout_sec=0.0):
             return
 
         goal_spec = robot_state["goals"][robot_state["goal_index"]]
         goal_label = goal_spec["label"]
+        # Workspace goals are mutually exclusive across robots.
         if self._is_workspace_label(goal_label) and self._workspace_reserved_by_other(goal_label, robot_name):
             if robot_state["wait_logged_for_workspace"] != goal_label:
                 robot_state["wait_logged_for_workspace"] = goal_label
@@ -180,6 +203,7 @@ class MultiRobotOrchestrator(Node):
         future.add_done_callback(lambda done: self._on_goal_response(robot_name, robot_state, done))
 
     def _on_goal_response(self, robot_name: str, robot_state: dict, future) -> None:
+        # Convert an accepted goal into an in-flight result future.
         try:
             goal_handle = future.result()
         except Exception as exc:
@@ -197,6 +221,7 @@ class MultiRobotOrchestrator(Node):
         robot_state["goal_start_time_ns"] = self.get_clock().now().nanoseconds
 
     def _check_goal_result(self, robot_name: str, robot_state: dict) -> None:
+        # Poll the in-flight action result and enforce per-goal timeouts.
         result_future = robot_state["result_future"]
         if result_future is None:
             return
@@ -210,6 +235,8 @@ class MultiRobotOrchestrator(Node):
                     self.get_logger().warning(
                         f"{robot_name}: goal [{goal_spec['label']}] timed out after {elapsed_sec:.0f}s, returning home"
                     )
+                    # Timed-out robots skip remaining work and head to the final
+                    # home goal after requesting cancellation.
                     self._cancel_active_goal(robot_name, robot_state)
                     robot_state["goal_index"] = len(robot_state["goals"]) - 1
                     robot_state["wait_logged_for_workspace"] = None
@@ -229,12 +256,15 @@ class MultiRobotOrchestrator(Node):
             robot_state["goal_index"] += 1
         else:
             self.get_logger().warning(f"{robot_name}: goal [{goal_spec['label']}] finished with status {result.status}")
+            # On failure, skip the remaining task/return sequence and send the
+            # robot to the final home goal if it is not already there.
             if robot_state["goal_index"] < len(robot_state["goals"]) - 1:
                 robot_state["goal_index"] = len(robot_state["goals"]) - 1
 
         self._clear_goal_state(robot_name, robot_state)
 
     def _cancel_active_goal(self, robot_name: str, robot_state: dict) -> None:
+        # Best-effort cancellation for goals that exceed their timeout.
         goal_handle = robot_state["goal_handle"]
         if goal_handle is None:
             return
@@ -268,6 +298,7 @@ class MultiRobotOrchestrator(Node):
         return "_return_" in label
 
     def _timeout_for_goal(self, goal_label: str) -> float:
+        # Return/parking movements get a longer timeout than workspace visits.
         if (
             goal_label.endswith("_return_aisle")
             or goal_label.endswith("_return_transit")
@@ -279,6 +310,7 @@ class MultiRobotOrchestrator(Node):
         return self.goal_timeout_sec
 
     def _workspace_reserved_by_other(self, workspace_label: str, robot_name: str) -> bool:
+        # True if another robot has already dispatched a goal for this workspace.
         for other_robot_name, other_state in self.robot_states.items():
             if other_robot_name == robot_name:
                 continue
@@ -287,6 +319,7 @@ class MultiRobotOrchestrator(Node):
         return False
 
     def _clear_goal_state(self, robot_name: str, robot_state: dict) -> None:
+        # Reset per-goal state after success, failure, or timeout.
         robot_state["goal_handle"] = None
         robot_state["goal_in_flight"] = False
         robot_state["goal_start_time_ns"] = None
@@ -295,10 +328,12 @@ class MultiRobotOrchestrator(Node):
         robot_state["wait_logged_for_return_lane"] = False
 
     def _goal_pose_for_workspace(self, workspace_id: str) -> PoseStamped:
+        # Workspace task goals target the generated approach cell for that workspace.
         goal_x, goal_y = cell_to_pose(workspace_approach_cell(workspace_id))
         return self._pose_stamped(goal_x, goal_y, 0.0)
 
     def _pose_stamped(self, x: float, y: float, yaw: float) -> PoseStamped:
+        # Helper for map-frame Nav2 goals with yaw-only orientation.
         pose = PoseStamped()
         pose.header.frame_id = "map"
         pose.header.stamp = self.get_clock().now().to_msg()

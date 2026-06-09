@@ -13,12 +13,19 @@ from rclpy.node import Node
 class RandomWorkAreaGoalNode(Node):
     def __init__(self) -> None:
         super().__init__("random_work_area_goal")
+
+        # BasicNavigator wraps Nav2 action/service clients for a single robot.
         self.navigator = BasicNavigator()
+
+        # Goals are loaded from goals.csv rather than ROS parameters.
         self.goals = self._load_goals()
+
+        # Timer starts a random goal whenever the node is idle.
         self.timer = self.create_timer(1.0, self._tick)
         self.active = False
 
     def _load_goals(self):
+        # Prefer the installed package share path, with a local source-tree fallback.
         share_dir = get_package_share_directory("hippo_harvest_sim")
         candidate_paths = [
             os.path.join(share_dir, "maps", "goals.csv"),
@@ -33,6 +40,7 @@ class RandomWorkAreaGoalNode(Node):
             )
             return goals
 
+        # goals.csv rows are expected to include goal_id, x_m, y_m, and yaw_rad.
         with open(csv_path, newline="", encoding="ascii") as csv_file:
             reader = csv.DictReader(csv_file)
             for row in reader:
@@ -40,9 +48,11 @@ class RandomWorkAreaGoalNode(Node):
         return goals
 
     def _tick(self) -> None:
+        # Nothing to dispatch if no CSV goals were found or a navigation task is active.
         if not self.goals or self.active:
             return
 
+        # Choose one random goal row and convert it to a map-frame PoseStamped.
         selected = random.choice(self.goals)
         goal = PoseStamped()
         goal.header.frame_id = "map"
@@ -60,6 +70,7 @@ class RandomWorkAreaGoalNode(Node):
         self.navigator.goToPose(goal)
         self.active = True
 
+        # Block inside this timer callback until Nav2 reports the task complete.
         while not self.navigator.isTaskComplete():
             rclpy.spin_once(self, timeout_sec=0.2)
 

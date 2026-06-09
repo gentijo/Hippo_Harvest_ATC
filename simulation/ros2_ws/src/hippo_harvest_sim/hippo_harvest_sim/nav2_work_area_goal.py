@@ -12,6 +12,7 @@ from hippo_harvest_sim.layout_data import cell_to_pose, is_in_bounds, planning_o
 
 
 def safe_staging_cell(cell: tuple[int, int], south_offset: int = 10) -> tuple[int, int]:
+    # Find a free staging/exit cell south of the given workspace approach cell.
     x, y = cell
     occupied = planning_occupied_cells()
     for candidate_y in range(y - south_offset, -1, -1):
@@ -24,6 +25,8 @@ def safe_staging_cell(cell: tuple[int, int], south_offset: int = 10) -> tuple[in
 class Nav2WorkAreaGoalNode(Node):
     def __init__(self) -> None:
         super().__init__("nav2_work_area_goal")
+
+        # Hard-coded single-robot route through ws2, an exit/staging path, and ws10.
         ws2 = workspace_approach_cell("ws2")
         ws10 = workspace_approach_cell("ws10")
         ws2_exit = safe_staging_cell(ws2)
@@ -39,11 +42,18 @@ class Nav2WorkAreaGoalNode(Node):
         self.nav2_ready = False
         self.goal_handle = None
         self.result_future = None
+
+        # Action client for sending Nav2 NavigateToPose goals.
         self.nav_action_client = ActionClient(self, NavigateToPose, "navigate_to_pose")
+
+        # Lifecycle service client used to wait until bt_navigator is active.
         self.bt_state_client = self.create_client(GetState, "bt_navigator/get_state")
+
+        # Scheduler: wait for Nav2, dispatch goals, then poll results.
         self.timer = self.create_timer(1.0, self._tick)
 
     def _tick(self) -> None:
+        # Do not send goals until Nav2's behavior-tree navigator is active.
         if not self.nav2_ready:
             self.nav2_ready = self._navigator_is_active()
             if not self.nav2_ready:
@@ -60,6 +70,7 @@ class Nav2WorkAreaGoalNode(Node):
         self._dispatch_goal()
 
     def _navigator_is_active(self) -> bool:
+        # Query bt_navigator lifecycle state asynchronously.
         if not self.bt_state_client.wait_for_service(timeout_sec=0.0):
             self.get_logger().info("bt_navigator/get_state service not available yet")
             return False
@@ -69,6 +80,7 @@ class Nav2WorkAreaGoalNode(Node):
         return False
 
     def _on_state_response(self, future) -> None:
+        # Lifecycle state response callback; "active" means goals can be sent.
         try:
             response = future.result()
         except Exception as exc:
@@ -82,6 +94,7 @@ class Nav2WorkAreaGoalNode(Node):
             self.get_logger().info(f"bt_navigator state is {state}, waiting for active")
 
     def _dispatch_goal(self) -> None:
+        # Send the current route waypoint as a map-frame NavigateToPose action goal.
         if not self.nav_action_client.wait_for_server(timeout_sec=0.0):
             self.get_logger().info("navigate_to_pose action server not available yet")
             return
@@ -107,6 +120,7 @@ class Nav2WorkAreaGoalNode(Node):
         send_goal_future.add_done_callback(self._on_goal_response)
 
     def _on_goal_response(self, future) -> None:
+        # Store the accepted goal handle and begin waiting for its result.
         try:
             goal_handle = future.result()
         except Exception as exc:
@@ -122,6 +136,7 @@ class Nav2WorkAreaGoalNode(Node):
         self.goal_in_flight = True
 
     def _check_goal_result(self) -> None:
+        # Advance to the next route waypoint only after the current action succeeds.
         if self.result_future is None or not self.result_future.done():
             return
 

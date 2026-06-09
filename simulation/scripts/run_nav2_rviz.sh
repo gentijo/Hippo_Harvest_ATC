@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-ROOT_DIR="/opt/code/HippoHarvest/simulation"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$ROOT_DIR/ros2_ws"
 PKG_NAME="hippo_harvest_sim"
 PKG_ROOT="$WS_DIR/src/$PKG_NAME"

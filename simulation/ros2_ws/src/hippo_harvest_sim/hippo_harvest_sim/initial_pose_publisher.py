@@ -10,9 +10,17 @@ from hippo_harvest_sim.layout_data import cell_to_pose, robot_home_cell
 class InitialPosePublisher(Node):
     def __init__(self) -> None:
         super().__init__("initial_pose_publisher")
+
+        # start_pose_topic is consumed by the synthetic localization node as its
+        # one-shot initial pose input.
         self.declare_parameter("start_pose_topic", "nav/start_pose")
+
+        # robot_index and robot_count choose which generated home cell this robot
+        # should start from in the shared layout.
         self.declare_parameter("robot_index", 1)
         self.declare_parameter("robot_count", 10)
+
+        # Initial yaw in radians, written into the published PoseStamped orientation.
         self.declare_parameter("start_yaw", 0.0)
 
         start_pose_topic = str(self.get_parameter("start_pose_topic").value)
@@ -20,11 +28,16 @@ class InitialPosePublisher(Node):
         robot_count = int(self.get_parameter("robot_count").value)
         self.start_yaw = float(self.get_parameter("start_yaw").value)
 
+        # Publishes geometry_msgs/PoseStamped on the configured start-pose topic.
         self.publisher = self.create_publisher(PoseStamped, start_pose_topic, 10)
+
+        # Publish the start pose a few times so late-starting subscribers still
+        # have a chance to receive it, then stop the timer.
         self.publish_count = 0
         self.max_publishes = 5
         self.timer = self.create_timer(1.0, self.on_timer)
 
+        # Convert the assigned grid home cell into map-frame meters.
         x, y = cell_to_pose(robot_home_cell(robot_index, robot_count))
         self.start_x = x
         self.start_y = y
@@ -34,6 +47,7 @@ class InitialPosePublisher(Node):
             self.timer.cancel()
             return
 
+        # PoseStamped output: initial map-frame pose for this robot.
         msg = PoseStamped()
         msg.header.frame_id = "map"
         msg.header.stamp = self.get_clock().now().to_msg()

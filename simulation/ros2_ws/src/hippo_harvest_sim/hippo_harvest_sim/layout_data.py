@@ -1,7 +1,10 @@
+# Shared layout constants used by the map publisher, planners, orchestrator,
+# marker publishers, and synthetic localization bounds.
 GRID_RESOLUTION_M = 0.025
 GRID_WIDTH_CELLS = 180
 GRID_HEIGHT_CELLS = 135
 
+# Workspace/table geometry in grid cells.
 TABLE_WIDTH_CELLS = 10
 TABLE_HEIGHT_CELLS = 5
 TABLE_COLUMNS = 4
@@ -11,13 +14,18 @@ BUFFER_CELLS = 40
 FIRST_TABLE_NW_X = 40
 FIRST_TABLE_NW_Y_FROM_NORTH = 40
 
+# Planning margins and robot staging/return lanes in grid cells.
 TABLE_BUFFER_CELLS = 3
 WALL_BUFFER_CELLS = 2
 WORKSPACE_APPROACH_OFFSET_CELLS = 12
 ROBOT_HOME_X_CELLS = 12
 ROBOT_STAGING_X_CELLS = 24
 ROBOT_RETURN_TRANSIT_X_CELLS = 30
+
+
 def generate_tables():
+    # Build the table/workspace descriptions from the constants above. Each table
+    # gets an id such as ws1 plus occupied bounds and a south-side approach cell.
     tables = []
     for row in range(TABLE_ROWS):
         top_y = GRID_HEIGHT_CELLS - FIRST_TABLE_NW_Y_FROM_NORTH - row * (
@@ -49,6 +57,7 @@ def generate_tables():
 
 
 def workspace_by_id(workspace_id: str):
+    # Resolve a workspace id like "ws2" to its generated table record.
     for table in generate_tables():
         if table["id"] == workspace_id:
             return table
@@ -56,11 +65,13 @@ def workspace_by_id(workspace_id: str):
 
 
 def is_in_bounds(cell):
+    # True when a grid cell lies inside the map extents.
     x, y = cell
     return 0 <= x < GRID_WIDTH_CELLS and 0 <= y < GRID_HEIGHT_CELLS
 
 
 def hard_occupied_cells():
+    # Hard obstacles are the actual table footprints.
     occupied = set()
     for table in generate_tables():
         for x in range(table["x_min"], table["x_max"]):
@@ -70,6 +81,7 @@ def hard_occupied_cells():
 
 
 def planning_occupied_cells():
+    # Planning obstacles include hard obstacles plus buffers around tables and walls.
     occupied = set(hard_occupied_cells())
 
     for table in generate_tables():
@@ -97,10 +109,12 @@ def planning_occupied_cells():
 
 
 def occupied_cells():
+    # Compatibility wrapper for callers that want only hard occupied cells.
     return hard_occupied_cells()
 
 
 def free_cells_with_margin(margin=0):
+    # Returns free cells after applying planning obstacles and an optional border margin.
     occupied = planning_occupied_cells()
     free = []
     for x in range(margin, GRID_WIDTH_CELLS - margin):
@@ -111,10 +125,13 @@ def free_cells_with_margin(margin=0):
 
 
 def default_start_cell():
+    # Single-robot fallback start near the southwest corner of the map.
     return (WALL_BUFFER_CELLS, WALL_BUFFER_CELLS)
 
 
 def robot_home_cells(robot_count: int = 10):
+    # Spread robot home cells along the west side, then nudge any occupied/duplicate
+    # candidate upward until it lands on a usable cell.
     if robot_count <= 0:
         return []
 
@@ -147,12 +164,14 @@ def robot_home_cells(robot_count: int = 10):
 
 
 def robot_home_cell(robot_index: int, robot_count: int = 10):
+    # 1-based robot index helper for launch files and per-robot nodes.
     if robot_index < 1 or robot_index > robot_count:
         raise ValueError(f"robot_index must be in [1, {robot_count}], got {robot_index}")
     return robot_home_cells(robot_count)[robot_index - 1]
 
 
 def robot_staging_cell(robot_index: int, robot_count: int = 10):
+    # Staging cells sit east of each robot's home row and are used before tasks.
     home_x, home_y = robot_home_cell(robot_index, robot_count)
     cell = (ROBOT_STAGING_X_CELLS, home_y)
     if is_in_bounds(cell) and cell not in planning_occupied_cells():
@@ -161,6 +180,7 @@ def robot_staging_cell(robot_index: int, robot_count: int = 10):
 
 
 def robot_return_transit_cell(workspace_id: str):
+    # Return transit cells move robots back into the west-side return lane.
     _, aisle_y = robot_return_aisle_entry_cell(workspace_id)
     cell = (ROBOT_RETURN_TRANSIT_X_CELLS, aisle_y)
     if is_in_bounds(cell) and cell not in planning_occupied_cells():
@@ -169,6 +189,7 @@ def robot_return_transit_cell(workspace_id: str):
 
 
 def robot_return_aisle_entry_cell(workspace_id: str):
+    # Find the first free cell south of a workspace approach point for exiting.
     workspace_x, workspace_y = workspace_approach_cell(workspace_id)
     occupied = planning_occupied_cells()
     for offset in range(1, workspace_y - WALL_BUFFER_CELLS + 1):
@@ -179,6 +200,7 @@ def robot_return_aisle_entry_cell(workspace_id: str):
 
 
 def robot_return_stage_transit_cell(robot_index: int, robot_count: int = 10):
+    # Transit point on the robot's home row before returning to staging/home.
     _, home_y = robot_home_cell(robot_index, robot_count)
     cell = (ROBOT_RETURN_TRANSIT_X_CELLS, home_y)
     if is_in_bounds(cell) and cell not in planning_occupied_cells():
@@ -187,6 +209,7 @@ def robot_return_stage_transit_cell(robot_index: int, robot_count: int = 10):
 
 
 def workspace_approach_cell(workspace_id: str):
+    # Main task waypoint for a workspace: the free south-side approach cell.
     table = workspace_by_id(workspace_id)
     cell = table["waypoint_cell"]
     if is_in_bounds(cell) and cell not in planning_occupied_cells():
@@ -195,5 +218,6 @@ def workspace_approach_cell(workspace_id: str):
 
 
 def cell_to_pose(cell):
+    # Convert grid-cell coordinates to the center of that cell in map-frame meters.
     x, y = cell
     return ((x + 0.5) * GRID_RESOLUTION_M, (y + 0.5) * GRID_RESOLUTION_M)
