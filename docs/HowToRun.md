@@ -15,6 +15,7 @@ xhost +local:root
 ```
 ## Configure host environment.
  If you want to run Grafana environment to capture telemetry from both the ATC and the Sim.
+
  ```bash
  cd {to a directory you want all the project files to be in}
  git clone https://gitlab.com/open-telemetry/grafanastack.git
@@ -24,7 +25,10 @@ xhost +local:root
  ## the full grafana stack should be running
  ## for a simple test open a browser window and go to the following URL
  ## http://localhost:3000
+ ```
 
+## if you haven't checked out the Hippo Harest project then:
+git clone https://github.com/gentijo/Hippo_Harvest_ATC.git
 
 ## Start the container
 
