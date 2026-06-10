@@ -1,3 +1,5 @@
+"""RQT observability plugin for the air-traffic-control system."""
+
 import math
 import re
 import uuid
@@ -69,6 +71,8 @@ class AirTrafficControlPlugin(Plugin):
         super().__init__(context)
         self.setObjectName("AirTrafficControlPlugin")
 
+        # The plugin can run inside an existing ROS session or bootstrap its own
+        # minimal rclpy context when launched standalone.
         if not rclpy.ok():
             rclpy.init(args=None)
             self._owns_rclpy = True
@@ -85,6 +89,8 @@ class AirTrafficControlPlugin(Plugin):
         self.active_collision_groups: set[tuple[str, ...]] = set()
         self.atc_event_sub = self.node.create_subscription(String, "/atc/events", self._on_atc_event, 10)
 
+        # Build the dashboard first so the widget appears immediately, then
+        # attach subscriptions and refresh timers.
         self.widget = QWidget()
         self.widget.setWindowTitle("Air Traffic Control Monitor")
         self._build_ui()
@@ -104,6 +110,7 @@ class AirTrafficControlPlugin(Plugin):
         root_layout = QVBoxLayout()
         controls_layout = QHBoxLayout()
 
+        # --- Top control strip: tune the panel live without restarting it. ---
         controls_layout.addWidget(QLabel("Robots"))
         self.robot_count_spin = QSpinBox()
         self.robot_count_spin.setRange(1, 200)
@@ -131,6 +138,7 @@ class AirTrafficControlPlugin(Plugin):
         controls_layout.addWidget(self.summary_label)
         root_layout.addLayout(controls_layout)
 
+        # --- Main split view: robot table on top, event log underneath. ---
         self.main_splitter = QSplitter(Qt.Vertical)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels(
@@ -155,6 +163,7 @@ class AirTrafficControlPlugin(Plugin):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.main_splitter.addWidget(self.table)
 
+        # --- Log panel: highlight collision clusters and ATC action history. ---
         log_panel = QWidget()
         log_layout = QVBoxLayout()
         log_layout.setContentsMargins(0, 0, 0, 0)
@@ -185,6 +194,8 @@ class AirTrafficControlPlugin(Plugin):
         self.active_collision_groups.clear()
 
     def _configure_robot_subscriptions(self) -> None:
+        # Tear down the previous subscription set before rebuilding it with the
+        # current robot count / naming pattern.
         for robot in self.robots.values():
             for subscription in robot.subscriptions:
                 self.node.destroy_subscription(subscription)
@@ -194,6 +205,9 @@ class AirTrafficControlPlugin(Plugin):
         atc_goal_qos = QoSProfile(depth=1)
         atc_goal_qos.reliability = ReliabilityPolicy.RELIABLE
         atc_goal_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+        # Each robot contributes a bundle of observable topics. Keeping the
+        # subscriptions together makes the intent of the data model obvious.
         for index in range(1, self.robot_count + 1):
             robot_name = f"{self.robot_prefix}{index}"
             robot = RobotObservation(name=robot_name)
@@ -209,9 +223,9 @@ class AirTrafficControlPlugin(Plugin):
                 )
             )
 
-            # Nav2 action status provides active goal UUIDs and status, but not the
-            # original target pose. That still lets the panel show whether a robot
-            # has an active navigation goal in this read-only pass.
+            # Nav2 action status provides active goal UUIDs and state, even though
+            # it does not expose the original target pose. That is still enough for
+            # a read-only panel to show whether a robot has work in flight.
             status_topic = f"/{robot_name}/navigate_to_pose/_action/status"
             robot.subscriptions.append(
                 self.node.create_subscription(
@@ -222,9 +236,8 @@ class AirTrafficControlPlugin(Plugin):
                 )
             )
 
-            # Optional goal-pose topics. The current simulator orchestrator keeps
-            # goal poses internal, but these subscriptions make the panel ready for
-            # a future goal-publishing shim without changing the plugin.
+            # Optional goal-pose topics. These keep the panel ready for future
+            # goal-publishing shims without changing the UI contract.
             robot.subscriptions.append(
                 self.node.create_subscription(
                     PoseStamped,
@@ -244,7 +257,7 @@ class AirTrafficControlPlugin(Plugin):
                 )
 
             # Human-readable goal-name topics let the table display names such as
-            # ws2 or robot4_return_transit instead of opaque Nav2 goal UUIDs.
+            # `ws2` or `robot4_return_transit` instead of opaque Nav2 UUIDs.
             robot.subscriptions.append(
                 self.node.create_subscription(
                     String,
@@ -371,6 +384,8 @@ class AirTrafficControlPlugin(Plugin):
         now_sec = self.node.get_clock().now().nanoseconds / 1e9
         active_pose_count = 0
 
+        # Refresh the table row-by-row so the most important live values stay
+        # centered and easy to scan on a big screen.
         for row, robot_name in enumerate(sorted(self.robots.keys(), key=self._robot_sort_key)):
             robot = self.robots[robot_name]
             pose_age = None if robot.pose_time_sec is None else now_sec - robot.pose_time_sec
@@ -424,6 +439,7 @@ class AirTrafficControlPlugin(Plugin):
             item.setBackground(QColor(225, 245, 225))
 
     def _update_collision_log(self) -> None:
+        # The log only grows when a new connected collision cluster appears.
         collision_groups = self._collision_groups()
         current_groups = {tuple(group) for group in collision_groups}
 
@@ -436,6 +452,8 @@ class AirTrafficControlPlugin(Plugin):
         self.active_collision_groups = current_groups
 
     def _collision_groups(self) -> list[list[str]]:
+        # Build an undirected graph of collisions and collapse it into connected
+        # components so multi-robot incidents are reported as a single event.
         robot_names = sorted(self.robots.keys(), key=self._robot_sort_key)
         colliding_pairs = []
 
