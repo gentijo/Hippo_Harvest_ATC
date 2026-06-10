@@ -1,56 +1,83 @@
-# How to Bring up the System and run the Simulator and Air traffic control
-## Requirments:  Docker must be loaded on your system
+# How to Run Hippo Harvest
 
-## if you want telemetry and access via the MCP server
-Run:
+This guide shows how to start the Docker environment, launch the Air Traffic Control panel, and run the simulator.
 
-* git clone https://gitlab.com/open-telemetry/grafanastack.git
-* cd grafanastack
-* docker network create observe  (this typically only need to be done once, no harm to run more than once.)
-* docker compose up -d
+## Prerequisites
 
-Once this system is up, you can launch your IDE and attach you code window the the Grafana MCP server. 
-Just ask your IDE to let AI do it for you.
+- Docker installed and running
+- A Linux desktop session if you want GUI apps such as `rqt` and `rviz2`
+- The repository cloned to `/opt/code`
 
-Now you should have a full Grafana stack + Open Telemetry collector and Tempo, Mimir, Loki
+If your host blocks X11 access, allow local Docker GUI access before starting the container:
 
+```bash
+xhost +local:root
+```
 
-# To bring up the system (assumption this repo is already cloned)
-if not
-* git clone https://github.com/gentijo/Hippo_Harvest_ATC.git
-* git checkout air_traffic_control_v1
-* docker network create ros-net   (this typically only need to be done once, no harm to run more than once.)
-( docker compose up -d
+## Start the container
 
-# now the base system is up and running
-Run xhost + to allow the  docker container to access the host windowing system
-open two terminals and run
-* docker exec -it hippoharvest bash 
+From `/opt/code`:
 
-Run that command in both terminal windows, if it worked you should see the
-prompt "root@hippoharvest"
+```bash
+docker network create ros-net
+docker network create observe
+docker compose up -d
+docker exec -it hippoharvest bash
+```
 
-**Run in terminal 1**
+The `docker network create` commands are safe to run more than once.
 
-* cd /opt/code
-* ./air_traffic_control/scripts/startup.sh
+## Air Traffic Control panel
 
-This should bring up rqt, in the plugin menu there will an entry Hippo HArvest, then under that is a module called "Air Traffic Control", run that plugin and you will see an empth status board
+Inside the container:
 
-**Run in terminal 2**
+```bash
+cd /opt/code/air_traffic_control
+source /opt/ros/jazzy/setup.bash
+colcon build
+source install/setup.bash
+rqt --force-discover &
+ros2 launch air_traffic_control traffic_manager.launch.py robot_count:=10
+```
 
-* cd /opt/code
-* ./simulation/scripts/run_nav2_rviz.sh
+In `rqt`, open:
 
-This will bring up rviz2, on the left hand pane you will see a small square, use your mouse to scroll in. 
-The simulation will start running immedatlly and you should see the simulation running it RViz as well as
-the ATC score board running and showing data in rqt.
+```text
+Plugins -> Hippo Harvest -> Air Traffic Control Monitor
+```
 
-The simulation will continue to run, untill you close the terminal window but robot activity will 
-stop once the robots leave their home position, visit two random waypoints (red circles) then return home.
+If it shows up under the generic Python plugin group instead, search for `Air Traffic Control Monitor`.
 
-In the rqt screen there is a live "ATC Action" log at the bottom of the window.
-This will show when colusions occure and show how they are cleared.
+## Simulator
 
-You can also open your browser and enter "localhost:3000" to bring up Grafana
-From there you can inspect traces (Tempo data source) and logs (Loki data source)
+Open a second terminal in the same container and run:
+
+```bash
+cd /opt/code
+./simulation/scripts/run_nav2_rviz.sh
+```
+
+This script will build the simulator package if needed, then launch Nav2 and RViz2.
+
+## What You Should See
+
+- `rqt` shows the Air Traffic Control table and live action log
+- `rviz2` shows the robots moving through the map
+- Each robot starts at home, visits two random waypoints, and then returns home
+
+## Telemetry and Grafana
+
+Telemetry is optional. When it is enabled, the simulator and ATC nodes export OpenTelemetry data to the endpoint in `OTEL_EXPORTER_OTLP_ENDPOINT` and write simulator logs to `simulation/rviz/nav2_rviz.log`.
+
+If you have a Grafana/OpenTelemetry stack running on the `observe` network, you can open:
+
+```text
+http://localhost:3000
+```
+
+There you can inspect traces in Tempo and logs in Loki.
+
+## Notes
+
+- The simulator keeps running until you stop the terminal or interrupt the launch process.
+- The ATC panel is read-only in this first pass; it observes robot state and displays nearest-neighbor conflict information.
