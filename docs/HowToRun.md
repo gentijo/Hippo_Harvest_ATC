@@ -13,23 +13,35 @@ If your host blocks X11 access, allow local Docker GUI access before starting th
 ```bash
 xhost +local:root
 ```
+## Configure host environment.
+ If you want to run Grafana environment to capture telemetry from both the ATC and the Sim.
+ ```bash
+ cd {to a directory you want all the project files to be in}
+ git clone https://gitlab.com/open-telemetry/grafanastack.git
+ docker network create observe
+ docker compose build --no-cache
+ docker compose up -d
+ ## the full grafana stack should be running
+ ## for a simple test open a browser window and go to the following URL
+ ## http://localhost:3000
+
 
 ## Start the container
 
-From `/opt/code`:
-
 ```bash
+cd to the root of the hippoharvest project 
 docker network create ros-net
-docker network create observe
 docker compose up -d
 docker exec -it hippoharvest bash
 ```
+
 
 The `docker network create` commands are safe to run more than once.
 
 ## Air Traffic Control panel
 
 Inside the container:
+Start the ATC
 
 ```bash
 cd /opt/code/air_traffic_control
