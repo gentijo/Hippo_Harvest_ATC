@@ -5,9 +5,13 @@ setup.py
 ../../build/air_traffic_control/air_traffic_control.egg-info/PKG-INFO
 ../../build/air_traffic_control/air_traffic_control.egg-info/SOURCES.txt
 ../../build/air_traffic_control/air_traffic_control.egg-info/dependency_links.txt
+../../build/air_traffic_control/air_traffic_control.egg-info/entry_points.txt
 ../../build/air_traffic_control/air_traffic_control.egg-info/requires.txt
 ../../build/air_traffic_control/air_traffic_control.egg-info/top_level.txt
 ../../build/air_traffic_control/air_traffic_control.egg-info/zip-safe
 air_traffic_control/__init__.py
 air_traffic_control/air_traffic_control_plugin.py
+air_traffic_control/telemetry.py
+air_traffic_control/traffic_manager_node.py
+launch/traffic_manager.launch.py
 resource/air_traffic_control

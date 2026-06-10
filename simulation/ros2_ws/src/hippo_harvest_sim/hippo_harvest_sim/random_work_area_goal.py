@@ -9,10 +9,15 @@ from geometry_msgs.msg import PoseStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator
 from rclpy.node import Node
 
+from hippo_harvest_sim.telemetry import RunContextSubscriber, Telemetry
+
 
 class RandomWorkAreaGoalNode(Node):
     def __init__(self) -> None:
         super().__init__("random_work_area_goal")
+        self.robot_name = self.get_namespace().strip("/") or "robot"
+        self.run_context = RunContextSubscriber(self)
+        self.telemetry = Telemetry("hippo_harvest_sim", "random_work_area_goal", self.get_logger())
 
         # BasicNavigator wraps Nav2 action/service clients for a single robot.
         self.navigator = BasicNavigator()
@@ -34,7 +39,8 @@ class RandomWorkAreaGoalNode(Node):
         goals = []
         csv_path = next((path for path in candidate_paths if os.path.exists(path)), None)
         if csv_path is None:
-            self.get_logger().warning(
+            self._log(
+                "warning",
                 "No goals.csv found in either the installed package share directory "
                 "or the local simulation/layout directory."
             )
@@ -63,9 +69,13 @@ class RandomWorkAreaGoalNode(Node):
         goal.pose.orientation.z = math.sin(yaw / 2.0)
         goal.pose.orientation.w = math.cos(yaw / 2.0)
 
-        self.get_logger().info(
+        self._log(
+            "info",
             f"Dispatching goal {selected['goal_id']} at "
-            f"({goal.pose.position.x:.3f}, {goal.pose.position.y:.3f})"
+            f"({goal.pose.position.x:.3f}, {goal.pose.position.y:.3f})",
+            goal_id=selected["goal_id"],
+            goal_x=goal.pose.position.x,
+            goal_y=goal.pose.position.y,
         )
         self.navigator.goToPose(goal)
         self.active = True
@@ -75,8 +85,18 @@ class RandomWorkAreaGoalNode(Node):
             rclpy.spin_once(self, timeout_sec=0.2)
 
         result = self.navigator.getResult()
-        self.get_logger().info(f"Navigation result: {result}")
+        self._log("info", f"Navigation result: {result}", result=str(result))
         self.active = False
+
+    def _log(self, level: str, message: str, **attrs) -> None:
+        self.telemetry.log(
+            message,
+            level=level,
+            run_id=self.run_context.run_id,
+            robot_id=self.robot_name,
+            traceparent=self.run_context.robot_traceparent(self.robot_name),
+            **attrs,
+        )
 
 
 def main() -> None:

@@ -10,13 +10,17 @@
 
   <depend>action_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
+  <depend>visualization_msgs</depend>
 
   <exec_depend>python_qt_binding</exec_depend>
   <exec_depend>qt_gui</exec_depend>
   <exec_depend>rqt_gui</exec_depend>
   <exec_depend>rqt_gui_py</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

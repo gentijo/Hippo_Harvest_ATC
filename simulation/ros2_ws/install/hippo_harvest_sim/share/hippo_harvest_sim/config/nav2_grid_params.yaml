@@ -75,7 +75,7 @@ controller_server:
       - PathAlign
       - PathDist
       - GoalDist
-    FollowPath.BaseObstacle.scale: 0.02
+    FollowPath.BaseObstacle.scale: 8.0
     FollowPath.PathAlign.scale: 12.0
     FollowPath.PathAlign.forward_point_distance: 0.10
     FollowPath.GoalAlign.scale: 8.0
@@ -99,14 +99,23 @@ local_costmap:
       height: 3
       resolution: 0.025
       robot_radius: 0.05
-      plugins: ["static_layer", "inflation_layer"]
+      plugins: ["static_layer", "atc_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_topic: /map
+      atc_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: atc/traffic_map
+        map_subscribe_transient_local: true
+        first_map_only: false
+        subscribe_to_updates: false
+        lethal_cost_threshold: 50
+        trinary_costmap: true
+        use_maximum: true
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.06
-        cost_scaling_factor: 3.0
+        inflation_radius: 0.24
+        cost_scaling_factor: 2.0
 
 map_server:
   ros__parameters:
@@ -133,14 +142,23 @@ global_costmap:
       resolution: 0.025
       robot_radius: 0.05
       track_unknown_space: false
-      plugins: ["static_layer", "inflation_layer"]
+      plugins: ["static_layer", "atc_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_topic: /map
+      atc_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: atc/traffic_map
+        map_subscribe_transient_local: true
+        first_map_only: false
+        subscribe_to_updates: false
+        lethal_cost_threshold: 50
+        trinary_costmap: true
+        use_maximum: true
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.06
-        cost_scaling_factor: 3.0
+        inflation_radius: 0.24
+        cost_scaling_factor: 2.0
 
 lifecycle_manager_navigation:
   ros__parameters:

@@ -1,4 +1,5 @@
 import math
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -20,12 +21,15 @@ from python_qt_binding.QtWidgets import (
     QListWidgetItem,
     QLineEdit,
     QPushButton,
+    QSplitter,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from air_traffic_control.telemetry import RunContextSubscriber, Telemetry
 
 
 TREND_EPSILON_M = 0.005
@@ -72,11 +76,14 @@ class AirTrafficControlPlugin(Plugin):
             self._owns_rclpy = False
 
         self.node = rclpy.create_node("air_traffic_control_rqt_plugin")
+        self.run_context = RunContextSubscriber(self.node)
+        self.telemetry = Telemetry("air_traffic_control", "air_traffic_control_rqt_plugin", self.node.get_logger())
         self.robots: dict[str, RobotObservation] = {}
         self.robot_count = 20
         self.robot_prefix = "robot"
         self.pose_topic_suffix = "synthetic_pose"
         self.active_collision_groups: set[tuple[str, ...]] = set()
+        self.atc_event_sub = self.node.create_subscription(String, "/atc/events", self._on_atc_event, 10)
 
         self.widget = QWidget()
         self.widget.setWindowTitle("Air Traffic Control Monitor")
@@ -114,12 +121,17 @@ class AirTrafficControlPlugin(Plugin):
         self.apply_button = QPushButton("Apply")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         controls_layout.addWidget(self.apply_button)
+
+        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button.clicked.connect(self._on_clear_log_clicked)
+        controls_layout.addWidget(self.clear_log_button)
         controls_layout.addStretch(1)
 
         self.summary_label = QLabel()
         controls_layout.addWidget(self.summary_label)
         root_layout.addLayout(controls_layout)
 
+        self.main_splitter = QSplitter(Qt.Vertical)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels(
             [
@@ -141,15 +153,24 @@ class AirTrafficControlPlugin(Plugin):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
-        root_layout.addWidget(self.table)
+        self.main_splitter.addWidget(self.table)
 
-        root_layout.addWidget(QLabel("Collision log"))
+        log_panel = QWidget()
+        log_layout = QVBoxLayout()
+        log_layout.setContentsMargins(0, 0, 0, 0)
+        log_layout.addWidget(QLabel("Crash / ATC action log"))
         self.collision_log = QListWidget()
-        self.collision_log.setFixedHeight(self.collision_log.fontMetrics().lineSpacing() * 3 + 30)
+        self.collision_log.setMinimumHeight(self.collision_log.fontMetrics().lineSpacing() * 3 + 30)
         self.collision_log.setAlternatingRowColors(True)
         self.collision_log.setSelectionMode(QAbstractItemView.NoSelection)
         self.collision_log.setStyleSheet("QListWidget::item { padding: 4px; border-bottom: 1px solid #d0d0d0; }")
-        root_layout.addWidget(self.collision_log)
+        log_layout.addWidget(self.collision_log)
+        log_panel.setLayout(log_layout)
+        self.main_splitter.addWidget(log_panel)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 0)
+        self.main_splitter.setSizes([700, self.collision_log.fontMetrics().lineSpacing() * 3 + 45])
+        root_layout.addWidget(self.main_splitter)
 
         self.widget.setLayout(root_layout)
 
@@ -158,6 +179,10 @@ class AirTrafficControlPlugin(Plugin):
         self.robot_prefix = self.robot_prefix_edit.text().strip() or "robot"
         self.pose_topic_suffix = self.pose_suffix_edit.text().strip().strip("/") or "synthetic_pose"
         self._configure_robot_subscriptions()
+
+    def _on_clear_log_clicked(self) -> None:
+        self.collision_log.clear()
+        self.active_collision_groups.clear()
 
     def _configure_robot_subscriptions(self) -> None:
         for robot in self.robots.values():
@@ -288,6 +313,29 @@ class AirTrafficControlPlugin(Plugin):
         latest = active_statuses[-1]
         robot.active_goal_id = self._format_goal_id(latest.goal_info.goal_id.uuid)
         robot.active_goal_status = self._status_label(latest.status)
+
+    def _on_atc_event(self, msg: String) -> None:
+        robot_id = self._first_robot_mentioned(msg.data)
+        traceparent = self.run_context.robot_traceparent(robot_id)
+        with self.telemetry.start_as_current_span(
+            "atc.rqt_event_observed",
+            run_id=self.run_context.run_id,
+            robot_id=robot_id,
+            traceparent=traceparent,
+            event_text=msg.data,
+        ) as span:
+            updated_traceparent = Telemetry.traceparent_from_span(span)
+            if updated_traceparent:
+                self.run_context.update_robot_traceparent(robot_id, updated_traceparent)
+                traceparent = updated_traceparent
+            self.telemetry.log(
+                msg.data,
+                run_id=self.run_context.run_id,
+                robot_id=robot_id,
+                traceparent=traceparent,
+                event_text=msg.data,
+            )
+        self._append_log_text(msg.data)
 
     def _update_nearest_neighbors(self) -> None:
         robot_items = list(self.robots.items())
@@ -449,6 +497,32 @@ class AirTrafficControlPlugin(Plugin):
             f"goals: {robot_details}"
         )
 
+        self._append_log_text(message)
+
+        robot_id = robots[0].name if robots else ""
+        traceparent = self.run_context.robot_traceparent(robot_id)
+        with self.telemetry.start_as_current_span(
+            "atc.rqt_collision_observed",
+            run_id=self.run_context.run_id,
+            robot_id=robot_id,
+            traceparent=traceparent,
+            crash_x=crash_x,
+            crash_y=crash_y,
+            min_distance_m=min_distance,
+        ) as span:
+            updated_traceparent = Telemetry.traceparent_from_span(span)
+            if updated_traceparent:
+                self.run_context.update_robot_traceparent(robot_id, updated_traceparent)
+                traceparent = updated_traceparent
+            self.telemetry.log(
+                message,
+                run_id=self.run_context.run_id,
+                robot_id=robot_id,
+                traceparent=traceparent,
+                min_distance_m=min_distance,
+            )
+
+    def _append_log_text(self, message: str) -> None:
         item = QListWidgetItem(message)
         self.collision_log.addItem(item)
         self.collision_log.scrollToBottom()
@@ -521,12 +595,19 @@ class AirTrafficControlPlugin(Plugin):
             return (prefix, int(suffix))
         return (name, 0)
 
+    def _first_robot_mentioned(self, text: str) -> str:
+        for robot_name in sorted(self.robots.keys(), key=self._robot_sort_key):
+            if re.search(rf"(?<![A-Za-z0-9_]){re.escape(robot_name)}(?![A-Za-z0-9_])", text):
+                return robot_name
+        return ""
+
     def shutdown_plugin(self) -> None:
         self.spin_timer.stop()
         self.table_timer.stop()
         for robot in self.robots.values():
             for subscription in robot.subscriptions:
                 self.node.destroy_subscription(subscription)
+        self.node.destroy_subscription(self.atc_event_sub)
         self.robots.clear()
         self.node.destroy_node()
         if self._owns_rclpy and rclpy.ok():

@@ -6,6 +6,8 @@ RUN apt install -y ros-jazzy-rqt*
 RUN apt install -y ros-jazzy-rviz*
 RUN apt install -y ros-jazzy-navigation2 \
     ros-jazzy-nav2-common ros-jazzy-swri-transform-util \
-    ros-jazzy-nav2-bringup
+    ros-jazzy-nav2-bringup 
+RUN apt install -y pip iputils-ping curl nano jq
+RUN pip install --break-system-packages opentelemetry-distro opentelemetry-exporter-otlp
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
 CMD bash

@@ -1,0 +1,32 @@
+services:
+  hippoharvest:
+    build:
+      context: .
+      dockerfile: Dockerfile.HippoHarvest
+    image: hippo-ros
+    container_name: hippoharvest
+    hostname: hippoharvest
+    privileged: true
+    stdin_open: true
+    tty: true
+    working_dir: /opt/code
+    command: bash
+    environment:
+      DISPLAY: "unix${DISPLAY}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otelcol:4318"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev:/dev
+      - .:/opt/code
+      - /home/gentijo/Projects/OpenTelemetry/GrafanaStack:/opt/GrafanaStack
+    networks:
+      - ros-net
+      - observe
+
+networks:
+  ros-net:
+    external: true
+    name: ros-net
+  observe:
+    external: true
+    name: observe

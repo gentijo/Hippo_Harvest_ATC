@@ -16,6 +16,10 @@ ADRs:
 
 This pass does not pause robots, inject keep-out zones, or modify Nav2 goals.
 
+The `traffic_manager_node` is the next pass: it applies the centralized local
+conflict policy from ADR 0003 by pausing yielders through `/<robot>/atc/pause`
+and publishing protected-zone markers on `/atc/protected_zones`.
+
 ## Build
 
 From this workspace:
@@ -30,6 +34,16 @@ When running with the simulator, also source the simulator workspace in the
 same shell.
 
 ## Run
+
+Traffic manager:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /opt/code/air_traffic_control/install/setup.bash
+ros2 launch air_traffic_control traffic_manager.launch.py robot_count:=10
+```
+
+RQT monitor:
 
 ```bash
 rqt
@@ -55,7 +69,7 @@ For each robot it subscribes to:
 - `/<robot>/atc/current_goal`
 - `/<robot>/nav/current_goal`
 - `/<robot>/goal_pose`
+- `/<robot>/atc/pause`
 
-The current simulator publishes the pose topics and Nav2 status topics. The
-goal-pose topics are optional extension points for a later pass because the
-current simulator orchestrator keeps target goal poses internal.
+The current simulator publishes pose topics, Nav2 status topics, and decoded
+ATC goal name/pose topics from the multi-robot orchestrator.
