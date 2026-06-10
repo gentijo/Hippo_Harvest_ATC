@@ -1,3 +1,21 @@
+"""RQT observability plugin for the air-traffic-control system.
+
+ADR 0003 companion story:
+the coordinator makes decisions from pose and goal state, and this panel shows
+the same fleet story to a human operator. It listens to the robot feeds, turns
+them into a live nearest-neighbor table, and highlights the moments where the
+fleet is converging or colliding.
+
+Tasks this plugin performs while ATC is running:
+- subscribe to pose, goal, and Nav2 status topics
+- compute nearest neighbors and distance trends
+- flag stale feeds and collision clusters
+- show the action log emitted by the centralized traffic manager
+
+This is the observability side of UC1-UC7: it does not intervene, but it makes
+the same conflict stories visible during a demo or test run.
+"""
+
 import math
 import re
 import uuid
@@ -28,6 +46,7 @@ from python_qt_binding.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from std_msgs.msg import Bool
 
 from air_traffic_control.telemetry import RunContextSubscriber, Telemetry
 
@@ -35,6 +54,14 @@ from air_traffic_control.telemetry import RunContextSubscriber, Telemetry
 TREND_EPSILON_M = 0.005
 STALE_AFTER_SEC = 2.0
 COLLISION_DISTANCE_M = 0.13
+
+COMMAND_QOS = QoSProfile(depth=1)
+COMMAND_QOS.reliability = ReliabilityPolicy.RELIABLE
+COMMAND_QOS.durability = DurabilityPolicy.VOLATILE
+
+STATE_QOS = QoSProfile(depth=1)
+STATE_QOS.reliability = ReliabilityPolicy.RELIABLE
+STATE_QOS.durability = DurabilityPolicy.TRANSIENT_LOCAL
 
 
 @dataclass
@@ -69,6 +96,8 @@ class AirTrafficControlPlugin(Plugin):
         super().__init__(context)
         self.setObjectName("AirTrafficControlPlugin")
 
+        # The plugin can run inside an existing ROS session or bootstrap its own
+        # minimal rclpy context when launched standalone.
         if not rclpy.ok():
             rclpy.init(args=None)
             self._owns_rclpy = True
@@ -83,8 +112,19 @@ class AirTrafficControlPlugin(Plugin):
         self.robot_prefix = "robot"
         self.pose_topic_suffix = "synthetic_pose"
         self.active_collision_groups: set[tuple[str, ...]] = set()
+        self.atc_enabled = True
+        self.atc_enabled_topic = "/atc/control_enabled"
+        self.atc_enabled_state_sub = self.node.create_subscription(
+            Bool,
+            "/atc/enabled",
+            self._on_atc_enabled_state,
+            STATE_QOS,
+        )
+        self.atc_enabled_pub = self.node.create_publisher(Bool, self.atc_enabled_topic, COMMAND_QOS)
         self.atc_event_sub = self.node.create_subscription(String, "/atc/events", self._on_atc_event, 10)
 
+        # Build the dashboard first so the widget appears immediately, then
+        # attach subscriptions and refresh timers.
         self.widget = QWidget()
         self.widget.setWindowTitle("Air Traffic Control Monitor")
         self._build_ui()
@@ -104,6 +144,7 @@ class AirTrafficControlPlugin(Plugin):
         root_layout = QVBoxLayout()
         controls_layout = QHBoxLayout()
 
+        # --- Top control strip: tune the panel live without restarting it. ---
         controls_layout.addWidget(QLabel("Robots"))
         self.robot_count_spin = QSpinBox()
         self.robot_count_spin.setRange(1, 200)
@@ -125,12 +166,19 @@ class AirTrafficControlPlugin(Plugin):
         self.clear_log_button = QPushButton("Clear Log")
         self.clear_log_button.clicked.connect(self._on_clear_log_clicked)
         controls_layout.addWidget(self.clear_log_button)
+
+        self.atc_toggle_button = QPushButton("ATC Enabled")
+        self.atc_toggle_button.setCheckable(True)
+        self.atc_toggle_button.setChecked(True)
+        self.atc_toggle_button.toggled.connect(self._on_atc_toggle_clicked)
+        controls_layout.addWidget(self.atc_toggle_button)
         controls_layout.addStretch(1)
 
         self.summary_label = QLabel()
         controls_layout.addWidget(self.summary_label)
         root_layout.addLayout(controls_layout)
 
+        # --- Main split view: robot table on top, event log underneath. ---
         self.main_splitter = QSplitter(Qt.Vertical)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels(
@@ -155,6 +203,7 @@ class AirTrafficControlPlugin(Plugin):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.main_splitter.addWidget(self.table)
 
+        # --- Log panel: highlight collision clusters and ATC action history. ---
         log_panel = QWidget()
         log_layout = QVBoxLayout()
         log_layout.setContentsMargins(0, 0, 0, 0)
@@ -184,7 +233,30 @@ class AirTrafficControlPlugin(Plugin):
         self.collision_log.clear()
         self.active_collision_groups.clear()
 
+    def _on_atc_toggle_clicked(self, checked: bool) -> None:
+        self._publish_atc_enabled(checked)
+
+    def _on_atc_enabled_state(self, msg: Bool) -> None:
+        self.atc_enabled = bool(msg.data)
+        self._sync_atc_toggle_button()
+
+    def _publish_atc_enabled(self, enabled: bool) -> None:
+        self.atc_enabled = bool(enabled)
+        msg = Bool()
+        msg.data = self.atc_enabled
+        self.atc_enabled_pub.publish(msg)
+        self._sync_atc_toggle_button()
+
+    def _sync_atc_toggle_button(self) -> None:
+        if hasattr(self, "atc_toggle_button"):
+            self.atc_toggle_button.blockSignals(True)
+            self.atc_toggle_button.setChecked(self.atc_enabled)
+            self.atc_toggle_button.setText("ATC Enabled" if self.atc_enabled else "ATC Disabled")
+            self.atc_toggle_button.blockSignals(False)
+
     def _configure_robot_subscriptions(self) -> None:
+        # Tear down the previous subscription set before rebuilding it with the
+        # current robot count / naming pattern.
         for robot in self.robots.values():
             for subscription in robot.subscriptions:
                 self.node.destroy_subscription(subscription)
@@ -194,6 +266,9 @@ class AirTrafficControlPlugin(Plugin):
         atc_goal_qos = QoSProfile(depth=1)
         atc_goal_qos.reliability = ReliabilityPolicy.RELIABLE
         atc_goal_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+        # UC7 observability: each robot contributes a bundle of topics that let
+        # the operator read the fleet story without touching the controller.
         for index in range(1, self.robot_count + 1):
             robot_name = f"{self.robot_prefix}{index}"
             robot = RobotObservation(name=robot_name)
@@ -209,9 +284,9 @@ class AirTrafficControlPlugin(Plugin):
                 )
             )
 
-            # Nav2 action status provides active goal UUIDs and status, but not the
-            # original target pose. That still lets the panel show whether a robot
-            # has an active navigation goal in this read-only pass.
+            # Nav2 action status provides active goal UUIDs and state, even though
+            # it does not expose the original target pose. That is still enough for
+            # a read-only panel to show whether a robot has work in flight.
             status_topic = f"/{robot_name}/navigate_to_pose/_action/status"
             robot.subscriptions.append(
                 self.node.create_subscription(
@@ -222,9 +297,8 @@ class AirTrafficControlPlugin(Plugin):
                 )
             )
 
-            # Optional goal-pose topics. The current simulator orchestrator keeps
-            # goal poses internal, but these subscriptions make the panel ready for
-            # a future goal-publishing shim without changing the plugin.
+            # Optional goal-pose topics. These keep the panel ready for future
+            # goal-publishing shims without changing the UI contract.
             robot.subscriptions.append(
                 self.node.create_subscription(
                     PoseStamped,
@@ -244,7 +318,7 @@ class AirTrafficControlPlugin(Plugin):
                 )
 
             # Human-readable goal-name topics let the table display names such as
-            # ws2 or robot4_return_transit instead of opaque Nav2 goal UUIDs.
+            # `ws2` or `robot4_return_transit` instead of opaque Nav2 UUIDs.
             robot.subscriptions.append(
                 self.node.create_subscription(
                     String,
@@ -338,6 +412,8 @@ class AirTrafficControlPlugin(Plugin):
         self._append_log_text(msg.data)
 
     def _update_nearest_neighbors(self) -> None:
+        # The table mirrors the ADR's nearest-neighbor view so the operator can
+        # see which robots are converging before the traffic manager intervenes.
         robot_items = list(self.robots.items())
         for robot_name, robot in robot_items:
             nearest_name = ""
@@ -371,6 +447,8 @@ class AirTrafficControlPlugin(Plugin):
         now_sec = self.node.get_clock().now().nanoseconds / 1e9
         active_pose_count = 0
 
+        # Render the ATC story row-by-row: pose freshness, goal state, closest
+        # peer, and whether the gap is shrinking, widening, or holding steady.
         for row, robot_name in enumerate(sorted(self.robots.keys(), key=self._robot_sort_key)):
             robot = self.robots[robot_name]
             pose_age = None if robot.pose_time_sec is None else now_sec - robot.pose_time_sec
@@ -424,6 +502,8 @@ class AirTrafficControlPlugin(Plugin):
             item.setBackground(QColor(225, 245, 225))
 
     def _update_collision_log(self) -> None:
+        # UC1-UC5: the log only grows when a new connected collision cluster
+        # appears, so the operator can read each new traffic incident once.
         collision_groups = self._collision_groups()
         current_groups = {tuple(group) for group in collision_groups}
 
@@ -436,6 +516,8 @@ class AirTrafficControlPlugin(Plugin):
         self.active_collision_groups = current_groups
 
     def _collision_groups(self) -> list[list[str]]:
+        # Build an undirected graph of collisions and collapse it into connected
+        # components so multi-robot incidents are reported as a single event.
         robot_names = sorted(self.robots.keys(), key=self._robot_sort_key)
         colliding_pairs = []
 
@@ -607,6 +689,7 @@ class AirTrafficControlPlugin(Plugin):
         for robot in self.robots.values():
             for subscription in robot.subscriptions:
                 self.node.destroy_subscription(subscription)
+        self.node.destroy_subscription(self.atc_enabled_state_sub)
         self.node.destroy_subscription(self.atc_event_sub)
         self.robots.clear()
         self.node.destroy_node()

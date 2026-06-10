@@ -16,6 +16,15 @@ from visualization_msgs.msg import Marker, MarkerArray
 from air_traffic_control.telemetry import RunContextSubscriber, Telemetry
 
 
+COMMAND_QOS = QoSProfile(depth=1)
+COMMAND_QOS.reliability = ReliabilityPolicy.RELIABLE
+COMMAND_QOS.durability = DurabilityPolicy.VOLATILE
+
+STATE_QOS = QoSProfile(depth=1)
+STATE_QOS.reliability = ReliabilityPolicy.RELIABLE
+STATE_QOS.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+
 @dataclass
 class RobotState:
     name: str
@@ -30,10 +39,32 @@ class RobotState:
 class CentralizedTrafficManager(Node):
     """Centralized local conflict supervisor for the simulator robots.
 
-    This node implements the first actionable version of ADR 0003. It observes
-    perfect localization and current goals, detects closing conflicts, selects a
-    deterministic yielder, pauses that robot by gating its executed command, and
-    resumes it after the conflict clears.
+    ADR 0003 use-case story:
+    A robot enters a shared aisle or intersection, ATC watches the fleet state,
+    notices the gap closing, chooses one robot to yield, marks that robot as a
+    protected occupied zone, and then releases it once the path is safe again.
+
+    Tasks this node performs while ATC is running:
+    - subscribe to robot pose and goal topics
+    - measure pairwise separation and nearest-neighbor trends
+    - select a deterministic yielder when conflict risk rises
+    - publish pause state and protected-zone markers
+    - unwind yield cycles and deadlocks so the fleet can keep moving
+
+    ADR 0003 coverage notes:
+    - UC1 head-on aisle conflict: direct implementation
+    - UC2 intersection merge conflict: direct implementation through the same
+      closing-distance and goal-area arbitration
+    - UC3 rear-approach / overtaking conflict: direct implementation through the
+      protected-zone machinery
+    - UC4 stopped robot near a table or workstation: represented by the paused
+      robot as a temporary obstacle in the traffic map
+    - UC5 congestion near home / dispatch area: direct implementation through
+      cycle breaking and deadlock release
+    - UC6 short backing maneuver with limited lidar coverage: represented by the
+      same protected-zone and map-driven shielding logic
+    - UC7 visually ambiguous sensing conditions: direct implementation because
+      the coordinator reasons over pose and goal state instead of lidar returns
     """
 
     def __init__(self) -> None:
@@ -45,6 +76,8 @@ class CentralizedTrafficManager(Node):
         self.declare_parameter("goal_pose_topic_suffix", "atc/current_goal")
         self.declare_parameter("goal_name_topic_suffix", "atc/current_goal_name")
         self.declare_parameter("pause_topic_suffix", "atc/pause")
+        self.declare_parameter("atc_enabled_command_topic", "/atc/control_enabled")
+        self.declare_parameter("atc_enabled_state_topic", "/atc/enabled")
         self.declare_parameter("check_period_sec", 0.2)
         self.declare_parameter("safety_distance_m", 0.35)
         self.declare_parameter("clear_distance_m", 0.55)
@@ -68,6 +101,8 @@ class CentralizedTrafficManager(Node):
         self.goal_pose_topic_suffix = str(self.get_parameter("goal_pose_topic_suffix").value).strip("/")
         self.goal_name_topic_suffix = str(self.get_parameter("goal_name_topic_suffix").value).strip("/")
         self.pause_topic_suffix = str(self.get_parameter("pause_topic_suffix").value).strip("/")
+        self.atc_enabled_command_topic = str(self.get_parameter("atc_enabled_command_topic").value).strip()
+        self.atc_enabled_state_topic = str(self.get_parameter("atc_enabled_state_topic").value).strip()
         check_period_sec = float(self.get_parameter("check_period_sec").value)
         self.safety_distance_m = float(self.get_parameter("safety_distance_m").value)
         self.clear_distance_m = float(self.get_parameter("clear_distance_m").value)
@@ -101,8 +136,16 @@ class CentralizedTrafficManager(Node):
         self.reported_deadlock_release_events: set[tuple[str, str, str]] = set()
         self.last_evaluation_summary = {}
         self.next_diagnostic_snapshot_sec = 0.0
+        self.atc_enabled = True
         self.marker_pub = self.create_publisher(MarkerArray, "/atc/protected_zones", 10)
         self.event_pub = self.create_publisher(String, "/atc/events", 10)
+        self.atc_enabled_pub = self.create_publisher(Bool, self.atc_enabled_state_topic, STATE_QOS)
+        self.atc_enabled_sub = self.create_subscription(
+            Bool,
+            self.atc_enabled_command_topic,
+            self._on_atc_enabled_command,
+            COMMAND_QOS,
+        )
         traffic_map_qos = QoSProfile(depth=1)
         traffic_map_qos.reliability = ReliabilityPolicy.RELIABLE
         traffic_map_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -112,6 +155,7 @@ class CentralizedTrafficManager(Node):
             else None
         )
         self._initialize_diagnostic_log()
+        self._publish_atc_enabled_state()
 
         for index in range(1, self.robot_count + 1):
             robot_name = f"{self.robot_prefix}{index}"
@@ -166,6 +210,11 @@ class CentralizedTrafficManager(Node):
             self.robots[robot_name].goal_pose = None
 
     def _tick(self) -> None:
+        self._publish_atc_enabled_state()
+        if not self.atc_enabled:
+            self._publish_monitor_only_outputs()
+            self._publish_diagnostic_snapshot_if_due()
+            return
         self._evaluate_conflicts()
         self._publish_pause_states()
         self._publish_protected_zones()
@@ -173,7 +222,60 @@ class CentralizedTrafficManager(Node):
             self._publish_traffic_map()
         self._publish_diagnostic_snapshot_if_due()
 
+    def _on_atc_enabled_command(self, msg: Bool) -> None:
+        self._set_atc_enabled(bool(msg.data))
+
+    def _set_atc_enabled(self, enabled: bool) -> None:
+        if self.atc_enabled == enabled:
+            return
+
+        self.atc_enabled = enabled
+        self.previous_pair_distances = {}
+        self.deadlock_release_robot = None
+        self.deadlock_release_until_sec = 0.0
+        self.reported_yield_cycles.clear()
+        self.reported_deadlock_release_events.clear()
+
+        if not enabled:
+            self._clear_all_action_state()
+            self._publish_event(
+                "ATC disabled: monitor-only mode active; pause commands and protected zones cleared",
+                event_type="atc_disabled",
+            )
+        else:
+            self._publish_event(
+                "ATC enabled: corrective action restored",
+                event_type="atc_enabled",
+            )
+
+        self._publish_atc_enabled_state()
+
+    def _publish_atc_enabled_state(self) -> None:
+        msg = Bool()
+        msg.data = self.atc_enabled
+        self.atc_enabled_pub.publish(msg)
+
+    def _clear_all_action_state(self) -> None:
+        for robot in self.robots.values():
+            robot.paused = False
+            robot.paused_since_sec = None
+            robot.yielding_to.clear()
+        self.active_yields = {}
+        self._publish_pause_states()
+        self._publish_protected_zones()
+        if self.publish_traffic_map:
+            self._publish_clear_traffic_map()
+
+    def _publish_monitor_only_outputs(self) -> None:
+        self._publish_pause_states()
+        self._publish_protected_zones()
+        if self.publish_traffic_map:
+            self._publish_clear_traffic_map()
+
     def _evaluate_conflicts(self) -> None:
+        # UC1 and UC2: watch all fresh robot pairs, find closing motion, and
+        # decide whether the pair is headed into a corridor or intersection
+        # conflict that needs one robot to yield.
         fresh_names = [name for name in sorted(self.robots.keys(), key=self._robot_sort_key) if self._pose_is_fresh(name)]
         desired_yields: dict[str, set[str]] = {}
         current_distances = {}
@@ -360,6 +462,9 @@ class CentralizedTrafficManager(Node):
             )
 
     def _add_protected_zone_yields(self, desired_yields: dict[str, set[str]]) -> None:
+        # UC3, UC4, and UC6: once a robot is paused, treat its occupied circle as
+        # a temporary obstacle so rear-approachers, queued robots, and backing
+        # maneuvers stay clear of the same space.
         enforcement_distance = self.protected_zone_radius_m + self.protected_zone_enforcement_margin_m
         protected_names = set(desired_yields.keys())
         allowed_through_by_protected_robot = {
@@ -400,6 +505,9 @@ class CentralizedTrafficManager(Node):
                 break
 
     def _break_yield_cycles(self, desired_yields: dict[str, set[str]]) -> None:
+        # UC5: when multiple robots yield to each other in a loop, release one
+        # robot deterministically so the congestion can unwind instead of
+        # stalling the whole group.
         current_cycle_keys = set()
         while True:
             cycles = self._yield_cycles(desired_yields)
@@ -470,6 +578,8 @@ class CentralizedTrafficManager(Node):
             self.pause_publishers[robot_name].publish(msg)
 
     def _publish_protected_zones(self) -> None:
+        # Publish the paused robots as visible occupied zones in RViz so the
+        # chosen use case is obvious during a demo.
         now = self.get_clock().now().to_msg()
         marker_array = MarkerArray()
 
@@ -529,12 +639,21 @@ class CentralizedTrafficManager(Node):
         self.marker_pub.publish(marker_array)
 
     def _publish_traffic_map(self) -> None:
+        # UC3, UC4, and UC7: expose paused robots and fresh fleet positions as a
+        # shared occupancy grid instead of relying on lidar interpretation.
         fresh_names = [name for name in sorted(self.robots.keys(), key=self._robot_sort_key) if self._pose_is_fresh(name)]
         for robot_name in sorted(self.robots.keys(), key=self._robot_sort_key):
             obstacle_names = [name for name in fresh_names if name != robot_name]
             self.traffic_map_publishers[robot_name].publish(self._make_traffic_map(obstacle_names))
         if self.traffic_map_pub is not None:
             self.traffic_map_pub.publish(self._make_traffic_map(fresh_names))
+
+    def _publish_clear_traffic_map(self) -> None:
+        clear_names = []
+        for robot_name in sorted(self.robots.keys(), key=self._robot_sort_key):
+            self.traffic_map_publishers[robot_name].publish(self._make_traffic_map(clear_names))
+        if self.traffic_map_pub is not None:
+            self.traffic_map_pub.publish(self._make_traffic_map(clear_names))
 
     def _publish_diagnostic_snapshot_if_due(self) -> None:
         if self.diagnostic_period_sec <= 0.0:

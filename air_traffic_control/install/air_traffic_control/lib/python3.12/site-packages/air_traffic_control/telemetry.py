@@ -1,3 +1,5 @@
+"""Telemetry helpers for ATC nodes and the shared run context channel."""
+
 import json
 import logging
 import os
@@ -17,6 +19,8 @@ DEFAULT_OTEL_ENDPOINT = "otelcol:4318"
 
 
 class _NoopSpan:
+    """Fallback span object used when OpenTelemetry is unavailable."""
+
     def set_attribute(self, name, value) -> None:
         pass
 
@@ -31,6 +35,9 @@ class _NoopSpan:
 
 
 class Telemetry:
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
     def __init__(self, service_name: str, node_name: str, logger=None) -> None:
         self.service_name = service_name
         self.node_name = node_name
@@ -41,9 +48,13 @@ class Telemetry:
         self.endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", DEFAULT_OTEL_ENDPOINT).rstrip("/")
         self.export_endpoint = self._export_endpoint(self.endpoint)
 
+        # Telemetry is optional. If the collector is unreachable, the rest of
+        # the system should continue normally with console-only logging.
         if not self._endpoint_available():
             if self.logger is not None:
-                self.logger.warning(f"OpenTelemetry endpoint {self.endpoint} is unavailable; telemetry disabled")
+                self.logger.warning(
+                    f"OpenTelemetry endpoint {self.endpoint} is unavailable; telemetry disabled"
+                )
             return
 
         try:
@@ -56,6 +67,8 @@ class Telemetry:
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+            # Bind spans and logs to a stable service identity so traces from
+            # multiple ATC components are easy to correlate in the backend.
             resource = Resource.create(
                 {
                     "service.name": service_name,
@@ -83,6 +96,9 @@ class Telemetry:
             if self.logger is not None:
                 self.logger.warning(f"OpenTelemetry initialization failed; telemetry disabled: {exc}")
 
+    # ------------------------------------------------------------------
+    # Span and log entry points
+    # ------------------------------------------------------------------
     def start_as_current_span(self, name: str, run_id: str = "", robot_id: str = "", traceparent: str = "", **attrs):
         if not self.enabled:
             return nullcontext(_NoopSpan())
@@ -121,6 +137,9 @@ class Telemetry:
         log_method = getattr(self.logger, normalized_level, self.logger.info)
         log_method(console_message)
 
+    # ------------------------------------------------------------------
+    # Trace-context utilities
+    # ------------------------------------------------------------------
     @staticmethod
     def extract_context(traceparent: str):
         if not traceparent:
@@ -147,6 +166,9 @@ class Telemetry:
         sampled = "01" if int(span_context.trace_flags) & 0x01 else "00"
         return f"00-{span_context.trace_id:032x}-{span_context.span_id:016x}-{sampled}"
 
+    # ------------------------------------------------------------------
+    # Attribute rendering
+    # ------------------------------------------------------------------
     @staticmethod
     def _attributes(run_id: str, robot_id: str, traceparent: str, attrs: dict) -> dict:
         attributes = {key: value for key, value in attrs.items() if value is not None}
@@ -163,6 +185,9 @@ class Telemetry:
             return message
         return f"{message} | {rendered_attrs}"
 
+    # ------------------------------------------------------------------
+    # Environment and endpoint plumbing
+    # ------------------------------------------------------------------
     def _endpoint_available(self) -> bool:
         parsed = urlparse(self.export_endpoint)
         host = parsed.hostname
@@ -183,12 +208,17 @@ class Telemetry:
 
 
 class RunContextSubscriber:
+    """Track the current run ID and shared robot traceparent map on ROS topics."""
+
     def __init__(self, node: Node) -> None:
         self.run_id = ""
         self.robot_traceparents: dict[str, str] = {}
         qos = QoSProfile(depth=1)
         qos.reliability = ReliabilityPolicy.RELIABLE
         qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+        # The run context is retained so late joiners can reconstruct trace
+        # chains without waiting for the next ATC event.
         node.create_subscription(String, RUN_ID_TOPIC, self._on_run_id, qos)
         node.create_subscription(String, ROBOT_CONTEXT_TOPIC, self._on_robot_contexts, qos)
         self.robot_context_pub = node.create_publisher(String, ROBOT_CONTEXT_TOPIC, qos)
