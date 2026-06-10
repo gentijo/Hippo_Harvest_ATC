@@ -1,0 +1,77 @@
+world:
+  name: hippo_harvest_simple_grid
+  frame_id: map
+  origin_m:
+    x: 0.0
+    y: 0.0
+  size_m:
+    width: 4.5
+    height: 3.375
+  occupancy: table_grid
+
+grid:
+  resolution_m: 0.025
+  width_cells: 180
+  height_cells: 135
+  indexing: row_column
+  robot_cell_definition: cell_under_robot_center
+
+robot:
+  count: 10
+  names: robot1..robot10
+  home_layout: equally_spaced_along_west_wall
+  footprint_m:
+    width: 0.125
+    length: 0.125
+  drive: differential
+  caster: front
+  max_linear_speed_mps: 0.10
+  max_angular_speed_rps: 0.6
+  position_reference: centerpoint
+  command_topic: /cmd_vel
+  executed_command_topic: /executed_cmd_vel
+
+occupancy_layout:
+  tables:
+    rows: 3
+    columns: 4
+    table_width_cells: 10
+    table_height_cells: 5
+    inter_table_gap_cells: 20
+    perimeter_buffer_cells: 40
+    planning_buffer_cells: 2
+    first_table_nw_corner:
+      x_from_west_wall_cells: 40
+      y_from_north_wall_cells: 40
+  workstations:
+    naming: ws1..ws12
+    location: free_cell_south_of_table_outside_planning_buffer
+  wall_buffer_cells: 2
+
+localization:
+  name: synthetic_command_integrated_localization
+  source: executed_navigation_commands
+  output_topics:
+    pose: /synthetic_pose
+    odom: /odom
+    cell: /robot_cell
+  update_rate_hz: 10.0
+
+navigation:
+  behavior: nav2_async_multi_robot
+  per_robot_route: random_2_workstations_then_home
+  home_waypoints: robot1..robot10
+  start_cell: west_wall_home_positions
+  planning_obstacles:
+    source: inflated_tables_and_wall_buffer
+    table_buffer_cells: 2
+    wall_buffer_cells: 2
+  arrival_tolerance_m: 0.04
+  stop_at_final_waypoint: true
+
+visualization:
+  map_topic: /map
+  robot_marker_topic: /robot_marker
+  waypoint_marker_topic: /waypoint_markers
+  path_topic: /robot_path
+  target_cell_topic: /robot_cell

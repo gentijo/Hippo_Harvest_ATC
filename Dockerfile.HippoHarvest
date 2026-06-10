@@ -1,0 +1,10 @@
+#FROM ros:jazzy
+FROM osrf/ros:jazzy-desktop-full
+
+RUN apt -y update
+RUN apt install -y ros-jazzy-rqt*
+RUN apt install -y ros-jazzy-rviz*
+RUN apt install -y ros-jazzy-navigation2 \
+    ros-jazzy-nav2-common ros-jazzy-swri-transform-util \
+    ros-jazzy-nav2-bringup
+CMD bash

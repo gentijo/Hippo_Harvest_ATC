@@ -1,0 +1,51 @@
+capture_directory: "~"
+fixed_frame: /map
+target_frame: <none>
+fix_orientation: false
+rotate_90: false
+enable_antialiasing: true
+show_displays: true
+show_status_bar: true
+show_capture_tools: true
+window_width: 1280
+window_height: 800
+view_scale: 0.00162806944
+offset_x: -0.639301777
+offset_y: -0.495724976
+use_latest_transforms: true
+background: "#e5e7eb"
+image_transport: raw
+displays:
+  - type: mapviz_plugins/grid
+    name: grid
+    config:
+      visible: true
+      collapsed: false
+      color: "#9ca3af"
+      alpha: 0.20000000000000001
+      frame: /map
+      x: 0
+      y: 0
+      size: 1
+      rows: 1
+      columns: 1
+  - type: mapviz_plugins/marker
+    name: robot marker
+    config:
+      visible: true
+      collapsed: false
+      topic: /robot_marker
+      qos_depth: 10
+      qos_history: 1
+      qos_reliability: 1
+      qos_durability: 2
+  - type: mapviz_plugins/marker
+    name: waypoint markers
+    config:
+      visible: true
+      collapsed: false
+      topic: /waypoint_markers
+      qos_depth: 10
+      qos_history: 1
+      qos_reliability: 1
+      qos_durability: 2
