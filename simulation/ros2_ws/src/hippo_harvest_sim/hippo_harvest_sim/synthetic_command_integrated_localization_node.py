@@ -4,10 +4,12 @@ import rclpy
 from geometry_msgs.msg import PointStamped, PoseStamped, TransformStamped, Twist
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
+from std_msgs.msg import Bool
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
 from hippo_harvest_sim.layout_data import GRID_HEIGHT_CELLS, GRID_RESOLUTION_M, GRID_WIDTH_CELLS
+from hippo_harvest_sim.telemetry import RunContextSubscriber, Telemetry
 
 
 class SyntheticCommandIntegratedLocalizationNode(Node):
@@ -25,6 +27,7 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         self.declare_parameter("robot_marker_array_topic", "/robot_marker_array")
         self.declare_parameter("executed_command_topic", "executed_cmd_vel")
         self.declare_parameter("start_pose_topic", "nav/start_pose")
+        self.declare_parameter("pause_topic", "atc/pause")
 
         # Frame/identity parameters. base_frame_id is used as the odometry child
         # frame and the child frame of the map -> base transform.
@@ -45,9 +48,16 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         robot_marker_array_topic = str(self.get_parameter("robot_marker_array_topic").value)
         executed_command_topic = str(self.get_parameter("executed_command_topic").value)
         start_pose_topic = str(self.get_parameter("start_pose_topic").value)
+        pause_topic = str(self.get_parameter("pause_topic").value)
         self.base_frame_id = str(self.get_parameter("base_frame_id").value)
         self.robot_name = str(self.get_parameter("robot_name").value)
         self.robot_index = int(self.get_parameter("robot_index").value)
+        self.run_context = RunContextSubscriber(self)
+        self.telemetry = Telemetry(
+            "hippo_harvest_sim",
+            "synthetic_command_integrated_localization_node",
+            self.get_logger(),
+        )
 
         # Publishes the current synthetic pose as geometry_msgs/PoseStamped in map.
         self.pose_pub = self.create_publisher(PoseStamped, pose_topic, 10)
@@ -79,6 +89,10 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         # Listens for the initial localization pose. Only the first message is used.
         self.start_sub = self.create_subscription(PoseStamped, start_pose_topic, self.on_start_pose, 10)
 
+        # Listens to ATC pause/resume decisions so visualization can show paused
+        # robots in orange and active robots in blue.
+        self.pause_sub = self.create_subscription(Bool, pause_topic, self.on_pause, 10)
+
         # The synthetic localization update loop runs at 30 Hz.
         self.timer_period_sec = 1.0 / 30.0
         self.timer = self.create_timer(self.timer_period_sec, self.on_timer)
@@ -89,6 +103,7 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         self.yaw = 0.0
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
+        self.paused_by_atc = False
 
         # Path messages are published in map and capped later to avoid unbounded growth.
         self.path = Path()
@@ -118,12 +133,18 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         self.yaw = self._yaw_from_quaternion(msg.pose.orientation.z, msg.pose.orientation.w)
         self.initialized = True
         self.last_update_ns = self.get_clock().now().nanoseconds
-        self.get_logger().info(f"Localization initialized at ({self.x:.3f}, {self.y:.3f})")
+        self._log("info", f"Localization initialized at ({self.x:.3f}, {self.y:.3f})", x=self.x, y=self.y)
 
     def on_command(self, msg: Twist) -> None:
         # Only forward speed and yaw rate are modeled. Other Twist fields are ignored.
         self.linear_velocity = msg.linear.x
         self.angular_velocity = msg.angular.z
+
+    def on_pause(self, msg: Bool) -> None:
+        self.paused_by_atc = msg.data
+        if self.paused_by_atc:
+            self.linear_velocity = 0.0
+            self.angular_velocity = 0.0
 
     def on_timer(self) -> None:
         # Do not publish pose/odom/cell/path/markers until an initial pose arrives.
@@ -138,6 +159,10 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
             dt = (now_ns - self.last_update_ns) / 1e9
         self.last_update_ns = now_ns
         dt = min(max(dt, 0.0), 0.1)
+
+        if self.paused_by_atc:
+            self.linear_velocity = 0.0
+            self.angular_velocity = 0.0
 
         # Dead-reckon from the last executed command. This is synthetic localization,
         # not sensor fusion: no covariance, noise, slip, or measurements are applied.
@@ -198,7 +223,7 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         transform.transform.rotation = pose_msg.pose.orientation
         self.tf_broadcaster.sendTransform(transform)
 
-        # Body marker: cyan sphere centered on the current robot position.
+        # Body marker: blue sphere normally, orange while ATC is holding this robot.
         robot_marker = Marker()
         robot_marker.header.frame_id = "map"
         robot_marker.header.stamp = now
@@ -214,9 +239,14 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         robot_marker.scale.y = self.robot_diameter
         robot_marker.scale.z = 0.08
         robot_marker.color.a = 1.0
-        robot_marker.color.r = 0.0
-        robot_marker.color.g = 0.85
-        robot_marker.color.b = 1.0
+        if self.paused_by_atc:
+            robot_marker.color.r = 1.0
+            robot_marker.color.g = 0.45
+            robot_marker.color.b = 0.0
+        else:
+            robot_marker.color.r = 0.0
+            robot_marker.color.g = 0.35
+            robot_marker.color.b = 1.0
         self.robot_marker_pub.publish(robot_marker)
 
         # Heading marker: black arrow aligned with the current pose orientation.
@@ -245,14 +275,32 @@ class SyntheticCommandIntegratedLocalizationNode(Node):
         # Rate-limited status log for humans watching the simulation.
         if now_clock.nanoseconds - self.last_status_log_ns >= 1_000_000_000:
             self.last_status_log_ns = now_clock.nanoseconds
-            self.get_logger().info(
+            self._log(
+                "info",
                 f"Pose ({self.x:.3f}, {self.y:.3f}) yaw {self.yaw:.2f} cell ({cell_x}, {cell_y}) "
-                f"cmd v={self.linear_velocity:.3f} w={self.angular_velocity:.3f}"
+                f"cmd v={self.linear_velocity:.3f} w={self.angular_velocity:.3f}",
+                x=self.x,
+                y=self.y,
+                yaw=self.yaw,
+                cell_x=cell_x,
+                cell_y=cell_y,
+                linear_velocity=self.linear_velocity,
+                angular_velocity=self.angular_velocity,
             )
 
     @staticmethod
     def _yaw_from_quaternion(z: float, w: float) -> float:
         return math.atan2(2.0 * w * z, 1.0 - 2.0 * z * z)
+
+    def _log(self, level: str, message: str, **attrs) -> None:
+        self.telemetry.log(
+            message,
+            level=level,
+            run_id=self.run_context.run_id,
+            robot_id=self.robot_name,
+            traceparent=self.run_context.robot_traceparent(self.robot_name),
+            **attrs,
+        )
 
 
 def main() -> None:

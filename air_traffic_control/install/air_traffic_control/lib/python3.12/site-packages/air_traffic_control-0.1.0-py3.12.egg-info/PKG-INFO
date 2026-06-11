@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: air-traffic-control
+Version: 0.1.0
+Summary: RQT panel for observing multi-robot traffic-control metrics.
+Maintainer: Hippo Harvest
+Maintainer-email: user@example.com
+License: Apache-2.0

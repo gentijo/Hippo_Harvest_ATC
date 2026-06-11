@@ -16,11 +16,15 @@ from hippo_harvest_sim.layout_data import (
     planning_occupied_cells,
     workspace_approach_cell,
 )
+from hippo_harvest_sim.telemetry import RunContextSubscriber, Telemetry
 
 
 class PointToPointNavNode(Node):
     def __init__(self) -> None:
         super().__init__("point_to_point_nav_node")
+        self.robot_name = self.get_namespace().strip("/") or "robot"
+        self.run_context = RunContextSubscriber(self)
+        self.telemetry = Telemetry("hippo_harvest_sim", "point_to_point_nav_node", self.get_logger())
 
         # Publishes raw velocity commands for the simple robot node to limit/execute.
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
@@ -66,10 +70,12 @@ class PointToPointNavNode(Node):
         self.b_pose = cell_to_pose(self.target_cells[0])
         self._plan_current_leg(self.start_cell)
 
-        self.get_logger().info(
+        self._log(
+            "info",
             f"Start cell {self.start_cell} -> {self.a_pose}; route targets: "
             f"{self.target_workspace_ids[0]} via {self.target_cells[0]}, "
-            f"then {self.target_workspace_ids[1]} via {self.target_cells[1]}"
+            f"then {self.target_workspace_ids[1]} via {self.target_cells[1]}",
+            start_cell=str(self.start_cell),
         )
 
     def _make_pose(self, x: float, y: float) -> PoseStamped:
@@ -280,9 +286,12 @@ class PointToPointNavNode(Node):
         self.current_path_index = 1 if len(self.current_path_cells) > 1 else 0
         self.b_pose = cell_to_pose(target_cell)
         self._publish_plan()
-        self.get_logger().info(
+        self._log(
+            "info",
             f"Planned path to {self.target_workspace_ids[self.current_target_index]} with "
-            f"{len(self.current_path_cells)} cells"
+            f"{len(self.current_path_cells)} cells",
+            target_workspace=self.target_workspace_ids[self.current_target_index],
+            path_cell_count=len(self.current_path_cells),
         )
 
     def _distance_to_current_goal(self):
@@ -298,13 +307,16 @@ class PointToPointNavNode(Node):
         if distance_to_goal > self.goal_tolerance:
             return False
 
-        self.get_logger().info(
-            f"Reached {self.target_workspace_ids[self.current_target_index]} at distance {distance_to_goal:.3f} m"
+        self._log(
+            "info",
+            f"Reached {self.target_workspace_ids[self.current_target_index]} at distance {distance_to_goal:.3f} m",
+            target_workspace=self.target_workspace_ids[self.current_target_index],
+            distance_to_goal_m=distance_to_goal,
         )
         if self.current_target_index == len(self.target_workspace_ids) - 1:
             self.completed = True
             self.cmd_pub.publish(Twist())
-            self.get_logger().info("Reached final target and stopped")
+            self._log("info", "Reached final target and stopped")
             return True
 
         self.current_target_index += 1
@@ -317,7 +329,7 @@ class PointToPointNavNode(Node):
         self.current_pose = msg
         if not self.started:
             self.started = True
-            self.get_logger().info("Navigation received first localization update")
+            self._log("info", "Navigation received first localization update")
 
     def on_timer(self) -> None:
         # Always refresh visualization topics, even before navigation starts.
@@ -389,6 +401,16 @@ class PointToPointNavNode(Node):
         while angle < -math.pi:
             angle += 2.0 * math.pi
         return angle
+
+    def _log(self, level: str, message: str, **attrs) -> None:
+        self.telemetry.log(
+            message,
+            level=level,
+            run_id=self.run_context.run_id,
+            robot_id=self.robot_name,
+            traceparent=self.run_context.robot_traceparent(self.robot_name),
+            **attrs,
+        )
 
 
 def main() -> None:

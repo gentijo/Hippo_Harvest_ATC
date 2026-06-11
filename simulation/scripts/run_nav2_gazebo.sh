@@ -2,6 +2,8 @@
 set -eo pipefail
 
 ROOT_DIR="/opt/code/HippoHarvest/simulation"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/telemetry_logging.sh"
 WS_DIR="$ROOT_DIR/ros2_ws"
 PKG_NAME="hippo_harvest_sim"
 PKG_ROOT="$WS_DIR/src/$PKG_NAME"
@@ -29,4 +31,5 @@ ensure_built
 source "$WS_DIR/install/setup.bash"
 
 cd "$WS_DIR"
-exec stdbuf -oL -eL ros2 launch $PKG_NAME sim_bringup.launch.py 2>&1 | tee "$SIM_LOG"
+run_with_sim_logging "$SIM_LOG" \
+  stdbuf -oL -eL ros2 launch "$PKG_NAME" sim_bringup.launch.py

@@ -2,6 +2,8 @@
 set -eo pipefail
 
 ROOT_DIR="/opt/code/HippoHarvest/simulation"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/telemetry_logging.sh"
 WS_DIR="$ROOT_DIR/ros2_ws"
 MAPVIZ_HOME="$ROOT_DIR/mapviz/home"
 MAPVIZ_CONFIG_SRC="$ROOT_DIR/mapviz/hippo_harvest_grid.mvc"
@@ -17,7 +19,8 @@ source /opt/ros/jazzy/setup.bash
 source "$WS_DIR/install/setup.bash"
 
 cd "$WS_DIR"
-stdbuf -oL -eL ros2 launch hippo_harvest_sim grid_sim.launch.py 2>&1 | tee "$SIM_LOG" &
+run_with_sim_logging "$SIM_LOG" \
+  stdbuf -oL -eL ros2 launch hippo_harvest_sim grid_sim.launch.py &
 SIM_PID=$!
 echo "Started simulation in background with PID $SIM_PID"
 echo "Simulation log: $SIM_LOG"

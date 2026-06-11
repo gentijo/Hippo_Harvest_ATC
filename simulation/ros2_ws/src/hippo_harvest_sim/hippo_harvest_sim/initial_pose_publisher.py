@@ -4,7 +4,8 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 
-from hippo_harvest_sim.layout_data import cell_to_pose, robot_home_cell
+from hippo_harvest_sim.layout_data import cell_to_pose, robot_home_cell, robot_home_yaw
+from hippo_harvest_sim.telemetry import RunContextSubscriber, Telemetry
 
 
 class InitialPosePublisher(Node):
@@ -26,7 +27,10 @@ class InitialPosePublisher(Node):
         start_pose_topic = str(self.get_parameter("start_pose_topic").value)
         robot_index = int(self.get_parameter("robot_index").value)
         robot_count = int(self.get_parameter("robot_count").value)
-        self.start_yaw = float(self.get_parameter("start_yaw").value)
+        configured_start_yaw = float(self.get_parameter("start_yaw").value)
+        self.robot_name = f"robot{robot_index}"
+        self.run_context = RunContextSubscriber(self)
+        self.telemetry = Telemetry("hippo_harvest_sim", "initial_pose_publisher", self.get_logger())
 
         # Publishes geometry_msgs/PoseStamped on the configured start-pose topic.
         self.publisher = self.create_publisher(PoseStamped, start_pose_topic, 10)
@@ -41,6 +45,9 @@ class InitialPosePublisher(Node):
         x, y = cell_to_pose(robot_home_cell(robot_index, robot_count))
         self.start_x = x
         self.start_y = y
+        self.start_yaw = robot_home_yaw(robot_index, robot_count)
+        if configured_start_yaw != 0.0:
+            self.start_yaw = configured_start_yaw
 
     def on_timer(self) -> None:
         if self.publish_count >= self.max_publishes:
@@ -59,9 +66,22 @@ class InitialPosePublisher(Node):
         self.publish_count += 1
 
         if self.publish_count == 1:
-            self.get_logger().info(
-                f"Publishing initial pose at ({self.start_x:.3f}, {self.start_y:.3f})"
+            self._log(
+                "info",
+                f"Publishing initial pose at ({self.start_x:.3f}, {self.start_y:.3f})",
+                start_x=self.start_x,
+                start_y=self.start_y,
             )
+
+    def _log(self, level: str, message: str, **attrs) -> None:
+        self.telemetry.log(
+            message,
+            level=level,
+            run_id=self.run_context.run_id,
+            robot_id=self.robot_name,
+            traceparent=self.run_context.robot_traceparent(self.robot_name),
+            **attrs,
+        )
 
 
 def main() -> None:

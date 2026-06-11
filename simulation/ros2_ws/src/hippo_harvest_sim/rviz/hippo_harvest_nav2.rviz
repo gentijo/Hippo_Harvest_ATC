@@ -70,6 +70,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /robot_marker_array
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: ATC Protected Zones
+      Namespaces:
+        atc_protected_zones: true
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /atc/protected_zones
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15

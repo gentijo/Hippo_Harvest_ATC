@@ -9,6 +9,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 
 from hippo_harvest_sim.layout_data import cell_to_pose, is_in_bounds, planning_occupied_cells, workspace_approach_cell
+from hippo_harvest_sim.telemetry import RunContextSubscriber, Telemetry
 
 
 def safe_staging_cell(cell: tuple[int, int], south_offset: int = 10) -> tuple[int, int]:
@@ -25,6 +26,9 @@ def safe_staging_cell(cell: tuple[int, int], south_offset: int = 10) -> tuple[in
 class Nav2WorkAreaGoalNode(Node):
     def __init__(self) -> None:
         super().__init__("nav2_work_area_goal")
+        self.robot_name = self.get_namespace().strip("/") or "robot"
+        self.run_context = RunContextSubscriber(self)
+        self.telemetry = Telemetry("hippo_harvest_sim", "nav2_work_area_goal", self.get_logger())
 
         # Hard-coded single-robot route through ws2, an exit/staging path, and ws10.
         ws2 = workspace_approach_cell("ws2")
@@ -58,7 +62,7 @@ class Nav2WorkAreaGoalNode(Node):
             self.nav2_ready = self._navigator_is_active()
             if not self.nav2_ready:
                 return
-            self.get_logger().info("Nav2 is active and ready for goals")
+            self._log("info", "Nav2 is active and ready for goals")
 
         if self.goal_in_flight:
             self._check_goal_result()
@@ -72,7 +76,7 @@ class Nav2WorkAreaGoalNode(Node):
     def _navigator_is_active(self) -> bool:
         # Query bt_navigator lifecycle state asynchronously.
         if not self.bt_state_client.wait_for_service(timeout_sec=0.0):
-            self.get_logger().info("bt_navigator/get_state service not available yet")
+            self._log("info", "bt_navigator/get_state service not available yet")
             return False
 
         future = self.bt_state_client.call_async(GetState.Request())
@@ -84,19 +88,19 @@ class Nav2WorkAreaGoalNode(Node):
         try:
             response = future.result()
         except Exception as exc:
-            self.get_logger().warning(f"Failed to query bt_navigator state: {exc}")
+            self._log("warning", f"Failed to query bt_navigator state: {exc}")
             return
 
         state = response.current_state.label
         if state == "active":
             self.nav2_ready = True
         else:
-            self.get_logger().info(f"bt_navigator state is {state}, waiting for active")
+            self._log("info", f"bt_navigator state is {state}, waiting for active", nav2_state=state)
 
     def _dispatch_goal(self) -> None:
         # Send the current route waypoint as a map-frame NavigateToPose action goal.
         if not self.nav_action_client.wait_for_server(timeout_sec=0.0):
-            self.get_logger().info("navigate_to_pose action server not available yet")
+            self._log("info", "navigate_to_pose action server not available yet")
             return
 
         goal_spec = self.goals[self.goal_index]
@@ -112,9 +116,15 @@ class Nav2WorkAreaGoalNode(Node):
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = goal
 
-        self.get_logger().info(
+        self._log(
+            "info",
             f"Dispatching Nav2 goal {self.goal_index + 1}/{len(self.goals)} "
-            f"[{goal_spec['label']}] at ({goal_x:.3f}, {goal_y:.3f})"
+            f"[{goal_spec['label']}] at ({goal_x:.3f}, {goal_y:.3f})",
+            goal_label=goal_spec["label"],
+            goal_index=self.goal_index + 1,
+            goal_count=len(self.goals),
+            goal_x=goal_x,
+            goal_y=goal_y,
         )
         send_goal_future = self.nav_action_client.send_goal_async(goal_msg)
         send_goal_future.add_done_callback(self._on_goal_response)
@@ -124,11 +134,11 @@ class Nav2WorkAreaGoalNode(Node):
         try:
             goal_handle = future.result()
         except Exception as exc:
-            self.get_logger().error(f"Failed to send goal: {exc}")
+            self._log("error", f"Failed to send goal: {exc}")
             return
 
         if not goal_handle.accepted:
-            self.get_logger().error(f"Goal {self.goal_index + 1} was rejected")
+            self._log("error", f"Goal {self.goal_index + 1} was rejected", goal_index=self.goal_index + 1)
             return
 
         self.goal_handle = goal_handle
@@ -143,7 +153,7 @@ class Nav2WorkAreaGoalNode(Node):
         try:
             result = self.result_future.result()
         except Exception as exc:
-            self.get_logger().error(f"Goal result failed: {exc}")
+            self._log("error", f"Goal result failed: {exc}")
             self.goal_in_flight = False
             self.result_future = None
             self.goal_handle = None
@@ -152,16 +162,35 @@ class Nav2WorkAreaGoalNode(Node):
         goal_spec = self.goals[self.goal_index]
         status = result.status
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info(f"Goal {self.goal_index + 1} [{goal_spec['label']}] reached successfully")
+            self._log(
+                "info",
+                f"Goal {self.goal_index + 1} [{goal_spec['label']}] reached successfully",
+                goal_label=goal_spec["label"],
+                goal_index=self.goal_index + 1,
+            )
             self.goal_index += 1
         else:
-            self.get_logger().warning(
-                f"Goal {self.goal_index + 1} [{goal_spec['label']}] finished with status {status}"
+            self._log(
+                "warning",
+                f"Goal {self.goal_index + 1} [{goal_spec['label']}] finished with status {status}",
+                goal_label=goal_spec["label"],
+                goal_index=self.goal_index + 1,
+                status=status,
             )
 
         self.goal_in_flight = False
         self.result_future = None
         self.goal_handle = None
+
+    def _log(self, level: str, message: str, **attrs) -> None:
+        self.telemetry.log(
+            message,
+            level=level,
+            run_id=self.run_context.run_id,
+            robot_id=self.robot_name,
+            traceparent=self.run_context.robot_traceparent(self.robot_name),
+            **attrs,
+        )
 
 
 def main() -> None:

@@ -1,0 +1,2 @@
+[console_scripts]
+traffic_manager_node = air_traffic_control.traffic_manager_node:main
