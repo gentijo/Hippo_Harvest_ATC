@@ -12,6 +12,11 @@ ATC_WS_DIR="$(cd "$ROOT_DIR/.." && pwd)/air_traffic_control"
 ATC_SETUP="$ATC_WS_DIR/install/setup.bash"
 ROBOT_COUNT="${ROBOT_COUNT:-10}"
 START_ATC="${START_ATC:-0}"
+START_STAGGER_SEC="${START_STAGGER_SEC:-1.0}"
+USE_TRAFFIC_MAP="${USE_TRAFFIC_MAP:-0}"
+ATC_SAFETY_DISTANCE_M="${ATC_SAFETY_DISTANCE_M:-0.35}"
+ATC_CLEAR_DISTANCE_M="${ATC_CLEAR_DISTANCE_M:-0.55}"
+ATC_STARTUP_GRACE_SEC="${ATC_STARTUP_GRACE_SEC:-4.0}"
 SIM_INSTALL_SETUP="$WS_DIR/install/setup.bash"
 mkdir -p "$ROOT_DIR/rviz"
 
@@ -56,7 +61,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ "$START_ATC" == "1" ]] && ros2 pkg prefix air_traffic_control >/dev/null 2>&1; then
-  ros2 launch air_traffic_control traffic_manager.launch.py robot_count:="$ROBOT_COUNT" &
+  ros2 launch air_traffic_control traffic_manager.launch.py \
+    robot_count:="$ROBOT_COUNT" \
+    safety_distance_m:="$ATC_SAFETY_DISTANCE_M" \
+    clear_distance_m:="$ATC_CLEAR_DISTANCE_M" \
+    startup_grace_sec:="$ATC_STARTUP_GRACE_SEC" &
   ATC_PID="$!"
 elif [[ "$START_ATC" == "1" ]]; then
   echo "START_ATC=1 requested but air_traffic_control is not available; running simulator without ATC guard." >&2
@@ -66,4 +75,6 @@ cd "$WS_DIR"
 run_with_sim_logging "$SIM_LOG" \
   stdbuf -oL -eL ros2 launch "$PKG_NAME" nav2_rviz.launch.py \
   use_rviz:=true \
-  robot_count:="$ROBOT_COUNT"
+  robot_count:="$ROBOT_COUNT" \
+  start_stagger_sec:="$START_STAGGER_SEC" \
+  use_traffic_map:="$USE_TRAFFIC_MAP"

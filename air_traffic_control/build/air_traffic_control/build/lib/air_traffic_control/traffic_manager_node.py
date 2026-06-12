@@ -84,6 +84,7 @@ class CentralizedTrafficManager(Node):
         self.declare_parameter("publish_traffic_map", False)
         self.declare_parameter("max_pause_sec", 8.0)
         self.declare_parameter("deadlock_release_sec", 3.0)
+        self.declare_parameter("startup_grace_sec", 4.0)
         self.declare_parameter("stale_pose_sec", 2.0)
         self.declare_parameter("diagnostic_period_sec", 5.0)
         self.declare_parameter("grid_resolution_m", 0.025)
@@ -111,6 +112,7 @@ class CentralizedTrafficManager(Node):
         self.publish_traffic_map = bool(self.get_parameter("publish_traffic_map").value)
         self.max_pause_sec = float(self.get_parameter("max_pause_sec").value)
         self.deadlock_release_sec = float(self.get_parameter("deadlock_release_sec").value)
+        self.startup_grace_sec = float(self.get_parameter("startup_grace_sec").value)
         self.stale_pose_sec = float(self.get_parameter("stale_pose_sec").value)
         self.diagnostic_period_sec = float(self.get_parameter("diagnostic_period_sec").value)
         self.grid_resolution_m = float(self.get_parameter("grid_resolution_m").value)
@@ -207,7 +209,8 @@ class CentralizedTrafficManager(Node):
         self._log(
             "info",
             f"Centralized traffic manager monitoring {self.robot_count} robots; "
-            f"pause below {self.safety_distance_m:.2f} m, resume above {self.clear_distance_m:.2f} m"
+            f"pause below {self.safety_distance_m:.2f} m, resume above {self.clear_distance_m:.2f} m, "
+            f"startup grace {self.startup_grace_sec:.1f}s"
         )
 
     def _on_pose(self, robot_name: str, msg: PoseStamped) -> None:
@@ -224,6 +227,11 @@ class CentralizedTrafficManager(Node):
 
     def _tick(self) -> None:
         self._publish_atc_enabled_state()
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        if self.startup_grace_sec > 0.0 and now_sec < self.startup_grace_sec:
+            self._publish_monitor_only_outputs()
+            self._publish_diagnostic_snapshot_if_due()
+            return
         if not self.atc_enabled:
             self._publish_monitor_only_outputs()
             self._publish_diagnostic_snapshot_if_due()
@@ -852,6 +860,7 @@ class CentralizedTrafficManager(Node):
                 "publish_traffic_map": self.publish_traffic_map,
                 "max_pause_sec": self.max_pause_sec,
                 "deadlock_release_sec": self.deadlock_release_sec,
+                "startup_grace_sec": self.startup_grace_sec,
                 "stale_pose_sec": self.stale_pose_sec,
                 "diagnostic_period_sec": self.diagnostic_period_sec,
             },

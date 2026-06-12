@@ -35,10 +35,8 @@ def _robot_navigation_group(robot_index: int, robot_count: int, params_file):
                 "controller_server.ros__parameters.odom_topic": "odom",
                 "global_costmap.global_costmap.ros__parameters.robot_base_frame": base_frame_id,
                 "global_costmap.global_costmap.ros__parameters.static_layer.map_topic": "/map",
-                "global_costmap.global_costmap.ros__parameters.atc_layer.map_topic": f"/{robot_name}/atc/traffic_map",
                 "local_costmap.local_costmap.ros__parameters.robot_base_frame": base_frame_id,
                 "local_costmap.local_costmap.ros__parameters.static_layer.map_topic": "/map",
-                "local_costmap.local_costmap.ros__parameters.atc_layer.map_topic": f"/{robot_name}/atc/traffic_map",
             },
             convert_types=True,
         ),
@@ -132,15 +130,20 @@ def _robot_navigation_group(robot_index: int, robot_count: int, params_file):
 def generate_launch_description():
     pkg_share = FindPackageShare("hippo_harvest_sim")
     map_yaml = PathJoinSubstitution([pkg_share, "maps", "grid_nav2_map.yaml"])
-    params_file = PathJoinSubstitution([pkg_share, "config", "nav2_grid_params.yaml"])
+    nav2_params_file = PathJoinSubstitution([pkg_share, "config", "nav2_grid_params.yaml"])
+    nav2_params_file_no_traffic = PathJoinSubstitution([pkg_share, "config", "nav2_grid_params_no_traffic.yaml"])
     rviz_config = PathJoinSubstitution([pkg_share, "rviz", "hippo_harvest_nav2.rviz"])
 
     use_rviz = LaunchConfiguration("use_rviz")
     autostart = LaunchConfiguration("autostart")
     robot_count = LaunchConfiguration("robot_count")
+    start_stagger_sec = LaunchConfiguration("start_stagger_sec")
+    use_traffic_map = LaunchConfiguration("use_traffic_map")
 
     def launch_setup(context, *args, **kwargs):
         count = int(robot_count.perform(context))
+        traffic_map_enabled = use_traffic_map.perform(context).lower() in ("1", "true", "yes", "on")
+        chosen_params_file = nav2_params_file if traffic_map_enabled else nav2_params_file_no_traffic
         actions = [
             Node(
                 package="hippo_harvest_sim",
@@ -154,7 +157,12 @@ def generate_launch_description():
                 executable="multi_robot_orchestrator",
                 name="multi_robot_orchestrator",
                 output="screen",
-                parameters=[{"robot_count": count}],
+                parameters=[
+                    {
+                        "robot_count": count,
+                        "start_stagger_sec": float(start_stagger_sec.perform(context)),
+                    }
+                ],
             ),
             Node(
                 package="hippo_harvest_sim",
@@ -166,7 +174,13 @@ def generate_launch_description():
         ]
 
         for robot_index in range(1, count + 1):
-            actions.append(_robot_navigation_group(robot_index, count, LaunchConfiguration("params_file")))
+            actions.append(
+                _robot_navigation_group(
+                    robot_index,
+                    count,
+                    chosen_params_file,
+                )
+            )
 
         return actions
 
@@ -174,8 +188,9 @@ def generate_launch_description():
         DeclareLaunchArgument("use_rviz", default_value="true"),
         DeclareLaunchArgument("autostart", default_value="true"),
         DeclareLaunchArgument("robot_count", default_value=str(DEFAULT_ROBOT_COUNT)),
+        DeclareLaunchArgument("start_stagger_sec", default_value="1.0"),
+        DeclareLaunchArgument("use_traffic_map", default_value="false"),
         DeclareLaunchArgument("map", default_value=map_yaml),
-        DeclareLaunchArgument("params_file", default_value=params_file),
         DeclareLaunchArgument("rviz_config", default_value=rviz_config),
         Node(
             package="nav2_map_server",
@@ -183,7 +198,7 @@ def generate_launch_description():
             name="map_server",
             output="screen",
             parameters=[
-                LaunchConfiguration("params_file"),
+                nav2_params_file,
                 {"yaml_filename": LaunchConfiguration("map")},
             ],
         ),

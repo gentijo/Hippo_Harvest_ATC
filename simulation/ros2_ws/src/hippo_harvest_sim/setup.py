@@ -15,7 +15,12 @@ setup(
         ("share/" + package_name + "/maps", ["maps/empty_grid_map.yaml", "maps/empty_grid_map.pgm", "maps/grid_nav2_map.yaml", "maps/grid_nav2_map.pgm", "maps/hippo_harvest_map.yaml", "maps/hippo_harvest_map.pgm", "maps/goals.csv"]),
         (
             "share/" + package_name + "/config",
-            ["config/nav2_params.yaml", "config/nav2_grid_params.yaml", "config/nav2_grid_params_atc.yaml"],
+            [
+                "config/nav2_params.yaml",
+                "config/nav2_grid_params.yaml",
+                "config/nav2_grid_params_atc.yaml",
+                "config/nav2_grid_params_no_traffic.yaml",
+            ],
         ),
         ("share/" + package_name + "/rviz", ["rviz/hippo_harvest_grid.rviz", "rviz/hippo_harvest_nav2.rviz"]),
     ],

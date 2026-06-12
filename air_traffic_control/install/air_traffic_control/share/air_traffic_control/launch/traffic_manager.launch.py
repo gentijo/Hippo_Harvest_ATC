@@ -10,6 +10,7 @@ def generate_launch_description():
             DeclareLaunchArgument("robot_count", default_value="10"),
             DeclareLaunchArgument("safety_distance_m", default_value="0.35"),
             DeclareLaunchArgument("clear_distance_m", default_value="0.55"),
+            DeclareLaunchArgument("startup_grace_sec", default_value="4.0"),
             Node(
                 package="air_traffic_control",
                 executable="traffic_manager_node",
@@ -20,6 +21,7 @@ def generate_launch_description():
                         "robot_count": LaunchConfiguration("robot_count"),
                         "safety_distance_m": LaunchConfiguration("safety_distance_m"),
                         "clear_distance_m": LaunchConfiguration("clear_distance_m"),
+                        "startup_grace_sec": LaunchConfiguration("startup_grace_sec"),
                     }
                 ],
             ),

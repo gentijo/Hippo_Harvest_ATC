@@ -1,3 +1,5 @@
+import math
+
 # Shared layout constants used by the map publisher, planners, orchestrator,
 # marker publishers, and synthetic localization bounds.
 GRID_RESOLUTION_M = 0.025
@@ -133,14 +135,15 @@ def default_start_cell():
 
 
 def robot_home_cells(robot_count: int = 10):
-    # Split homes between west and east side stacks. This keeps startup spacing
-    # wide enough that adjacent home poses do not immediately look like conflicts.
+    # Bias the fleet toward the west side so the demo naturally produces more
+    # crossing traffic through the shared aisles while still keeping home poses
+    # separated enough that robots do not spawn on top of each other.
     if robot_count <= 0:
         return []
 
     min_y = WALL_BUFFER_CELLS
     max_y = GRID_HEIGHT_CELLS - WALL_BUFFER_CELLS - 1
-    west_count = min(5, robot_count)
+    west_count = min(robot_count, max(1, math.ceil(robot_count * 0.8)))
     east_count = max(0, robot_count - west_count)
 
     def side_candidates(home_x: int, count: int) -> list[tuple[int, int]]:

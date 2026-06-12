@@ -37,7 +37,7 @@ class MultiRobotOrchestrator(Node):
         self.declare_parameter("shuffle_seed", 42)
         self.declare_parameter("goal_timeout_sec", 45.0)
         self.declare_parameter("return_goal_timeout_sec", 75.0)
-        self.declare_parameter("start_stagger_sec", 4.0)
+        self.declare_parameter("start_stagger_sec", 1.0)
         self.declare_parameter("diagnostic_period_sec", 5.0)
 
         self.robot_count = int(self.get_parameter("robot_count").value)
