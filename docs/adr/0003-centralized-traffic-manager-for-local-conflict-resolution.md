@@ -164,30 +164,6 @@ Expected behavior:
 
 This reduces startup bunching and launch-area deadlocks.
 
-### 6. Short backing maneuver with limited lidar coverage
-
-A robot needs to reverse a short distance into an area not fully covered by its forward-facing lidar.
-
-Expected behavior:
-
-- the traffic manager protects the backing robot’s local space
-- nearby robots yield before entering the reverse path
-- the backing maneuver completes with a temporary protected zone
-
-This is especially relevant because the project brief explicitly requires safe backing behavior.
-
-### 7. Conflict in visually ambiguous sensing conditions
-
-Two robots are close to tables, shelves, or other map structure where lidar returns might be difficult to interpret cleanly.
-
-Expected behavior:
-
-- the traffic manager still reasons from known robot poses and shared state
-- conflict detection does not depend on interpreting noisy or ambiguous range returns
-- yielding and resume behavior remain deterministic
-
-This supports the argument that centralized traffic control should be driven by fleet state and intent rather than by local sensing interpretation in this prototype.
-
 ## Deadlock Minimization Strategy
 
 This approach is designed to minimize deadlocks by using asymmetric, deterministic yielding.
