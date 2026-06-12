@@ -61,10 +61,6 @@ class CentralizedTrafficManager(Node):
       robot as a temporary obstacle in the traffic map
     - UC5 congestion near home / dispatch area: direct implementation through
       cycle breaking and deadlock release
-    - UC6 short backing maneuver with limited lidar coverage: represented by the
-      same protected-zone and map-driven shielding logic
-    - UC7 visually ambiguous sensing conditions: direct implementation because
-      the coordinator reasons over pose and goal state instead of lidar returns
     """
 
     def __init__(self) -> None:
@@ -137,18 +133,31 @@ class CentralizedTrafficManager(Node):
         self.last_evaluation_summary = {}
         self.next_diagnostic_snapshot_sec = 0.0
         self.atc_enabled = True
+
+#
+# Create Publisherrs
+#
         self.marker_pub = self.create_publisher(MarkerArray, "/atc/protected_zones", 10)
         self.event_pub = self.create_publisher(String, "/atc/events", 10)
         self.atc_enabled_pub = self.create_publisher(Bool, self.atc_enabled_state_topic, STATE_QOS)
+
+#
+# Create Listeners (Subscriptions)
+#
         self.atc_enabled_sub = self.create_subscription(
             Bool,
             self.atc_enabled_command_topic,
             self._on_atc_enabled_command,
             COMMAND_QOS,
         )
+
+#
+# Create Occupancy Map publisher
+#
         traffic_map_qos = QoSProfile(depth=1)
         traffic_map_qos.reliability = ReliabilityPolicy.RELIABLE
         traffic_map_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
         self.traffic_map_pub = (
             self.create_publisher(OccupancyGrid, "/atc/traffic_map", traffic_map_qos)
             if self.publish_traffic_map
@@ -157,6 +166,10 @@ class CentralizedTrafficManager(Node):
         self._initialize_diagnostic_log()
         self._publish_atc_enabled_state()
 
+# TODO:
+# Take Robot name out of topic and create a special type to hold the robot name along with the data
+# This is an efficency mod, so that we create robot(x) publisher / subscribers. 
+#
         for index in range(1, self.robot_count + 1):
             robot_name = f"{self.robot_prefix}{index}"
             self.robots[robot_name] = RobotState(name=robot_name)
